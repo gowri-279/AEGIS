@@ -1,15 +1,4 @@
-
-from typing import Any
-
 from p3.models import CandidateEvaluation, ConstraintCheck
-
-
-REQUIRED_CONSTRAINTS = {
-    "storage",
-    "edge_capacity",
-    "j3_water_level",
-    "recharge_eligibility",
-}
 
 
 def check_storage(
@@ -49,7 +38,9 @@ def check_edge_capacity(
 ) -> ConstraintCheck:
     if edge_capacity_m3_s is None or edge_capacity_m3_s <= 0:
         return ConstraintCheck(
-            "edge_capacity", "not_evaluated", ["EDGE_CAPACITY_UNAVAILABLE"]
+            "edge_capacity",
+            "not_evaluated",
+            ["EDGE_CAPACITY_UNAVAILABLE"],
         )
 
     if flow_m3_s <= edge_capacity_m3_s:
@@ -77,7 +68,9 @@ def check_j3_water_level(
 ) -> ConstraintCheck:
     if not usable or water_depth_m is None:
         return ConstraintCheck(
-            "j3_water_level", "not_evaluated", ["J3_WATER_LEVEL_UNAVAILABLE"]
+            "j3_water_level",
+            "not_evaluated",
+            ["J3_WATER_LEVEL_UNAVAILABLE"],
         )
 
     if water_depth_m < maximum_depth_m:
@@ -110,7 +103,9 @@ def check_recharge_eligibility(
 
     if eligibility == "ineligible":
         return ConstraintCheck(
-            "recharge_eligibility", "failed", ["RECHARGE_INELIGIBLE"]
+            "recharge_eligibility",
+            "failed",
+            ["RECHARGE_INELIGIBLE"],
         )
 
     return ConstraintCheck(
@@ -120,22 +115,37 @@ def check_recharge_eligibility(
     )
 
 
-
 def evaluate_feasibility(
     candidate_id: str,
     checks: list[ConstraintCheck],
 ) -> CandidateEvaluation:
+    by_name = {check.constraint: check for check in checks}
+
     required_constraints = {
         "storage",
-        "edge_capacity",
         "j3_water_level",
     }
 
-    # Recharge eligibility is required only for the recharge candidate.
+    # Physical edge capacity is required when it is known.
+    # If it is unavailable, a documented candidate-level flow limit
+    # may be used for the limited MVP feasibility check.
+    edge_check = by_name.get("edge_capacity")
+    candidate_limit_check = by_name.get("candidate_flow_limit")
+
+    if edge_check is not None and edge_check.status == "failed":
+        required_constraints.add("edge_capacity")
+    elif (
+        edge_check is not None
+        and edge_check.status == "passed"
+    ):
+        required_constraints.add("edge_capacity")
+    elif candidate_limit_check is not None:
+        required_constraints.add("candidate_flow_limit")
+    else:
+        required_constraints.add("edge_capacity")
+
     if candidate_id == "C-R1":
         required_constraints.add("recharge_eligibility")
-
-    by_name = {check.constraint: check for check in checks}
 
     feasible = all(
         by_name.get(name) is not None
@@ -148,4 +158,3 @@ def evaluate_feasibility(
         checks=checks,
         feasible=feasible,
     )
-

@@ -1,6 +1,6 @@
-
 from typing import Any
 
+from backend.network.fixtures import build_demo_network
 from p3.constraints import (
     check_edge_capacity,
     check_j3_water_level,
@@ -8,11 +8,47 @@ from p3.constraints import (
     check_storage,
     evaluate_feasibility,
 )
-from p3.models import CandidateEvaluation
+from p3.models import CandidateEvaluation, ConstraintCheck
 from p3.network_metrics import (
     calculate_modeled_network_utilization,
     calculate_remaining_storage,
 )
+
+
+def check_candidate_limit(
+    candidate_id: str,
+    flow_m3_s: float,
+    candidate_limit_m3_s: float | None,
+) -> ConstraintCheck:
+    """Check a candidate-level flow limit separately from physical capacity."""
+
+    details = {
+        "candidate_id": candidate_id,
+        "flow_m3_s": flow_m3_s,
+        "candidate_limit_m3_s": candidate_limit_m3_s,
+    }
+
+    if candidate_limit_m3_s is None or candidate_limit_m3_s <= 0:
+        return ConstraintCheck(
+            constraint="candidate_flow_limit",
+            status="not_evaluated",
+            reason_codes=["CANDIDATE_LIMIT_UNAVAILABLE"],
+            details=details,
+        )
+
+    if flow_m3_s <= candidate_limit_m3_s:
+        return ConstraintCheck(
+            constraint="candidate_flow_limit",
+            status="passed",
+            details=details,
+        )
+
+    return ConstraintCheck(
+        constraint="candidate_flow_limit",
+        status="failed",
+        reason_codes=["CANDIDATE_FLOW_LIMIT_EXCEEDED"],
+        details=details,
+    )
 
 
 def evaluate_candidate(
@@ -26,8 +62,9 @@ def evaluate_candidate(
     j3_water_level_usable: bool = True,
     occupied_storage_m3: float | None = None,
     affected_edges: list[dict[str, Any]] | None = None,
+    candidate_limit_m3_s: float | None = None,
 ) -> CandidateEvaluation:
-    """Evaluate constraints and calculate available network metrics."""
+    """Evaluate candidate constraints and calculate supported network metrics."""
 
     if duration_seconds <= 0:
         raise ValueError("Duration must be positive")
@@ -47,12 +84,26 @@ def evaluate_candidate(
             )
         )
 
-    checks.append(
-        check_edge_capacity(
-            flow_m3_s,
-            edge_capacity_m3_s,
+    # Check physical capacity when it is known.
+    # If unavailable, keep it not evaluated only when no candidate limit exists.
+    if edge_capacity_m3_s is not None:
+        checks.append(
+            check_edge_capacity(flow_m3_s, edge_capacity_m3_s)
         )
-    )
+    elif candidate_limit_m3_s is None:
+        checks.append(
+            check_edge_capacity(flow_m3_s, None)
+        )
+
+    # Candidate-level limits are not physical edge capacities.
+    if candidate_limit_m3_s is not None:
+        checks.append(
+            check_candidate_limit(
+                candidate_id,
+                flow_m3_s,
+                candidate_limit_m3_s,
+            )
+        )
 
     checks.append(
         check_j3_water_level(
@@ -72,26 +123,12 @@ def evaluate_candidate(
 
     result = evaluate_feasibility(candidate_id, checks)
 
-    # Use all supplied affected edges when available.
-    # Otherwise, use the single edge from the existing demo interface.
-    if affected_edges is None:
-        edges_to_evaluate = []
-
-        if edge_capacity_m3_s is not None:
-            edges_to_evaluate.append(
-                {
-                    "post_intervention_flow_m3_s": flow_m3_s,
-                    "capacity_m3_s": edge_capacity_m3_s,
-                }
-            )
-    else:
-        edges_to_evaluate = affected_edges
-
+    # Only calculate utilization from known physical edge capacities.
     result.modeled_network_utilization = (
-        calculate_modeled_network_utilization(edges_to_evaluate)
+        calculate_modeled_network_utilization(affected_edges or [])
     )
 
-    # Available storage + occupied storage = total capacity.
+    # Do not infer missing total capacity or occupied storage.
     total_capacity_m3 = None
 
     if (
@@ -117,38 +154,50 @@ def generate_demo_candidates(
     recharge_eligibility: str | None,
     j3_water_level_usable: bool = True,
 ) -> list[CandidateEvaluation]:
-    """Generate candidates for the standard synthetic fixture."""
+    """Evaluate candidates using the canonical P1 network fixture."""
 
     if duration_seconds <= 0:
         raise ValueError("Duration must be positive")
 
-    candidate_config = [
-        # ID, available storage, occupied storage, edge capacity, eligibility
-        ("C-L1", 100.0, 900.0, 0.5, None),
-        ("C-R1", None, None, 0.5, recharge_eligibility),
-        ("C-L2", 800.0, 200.0, 0.5, None),
-    ]
+    network = build_demo_network()
+    nodes = {node.node_id: node for node in network.nodes}
+
+    candidate_to_node = {
+        "C-L1": "L1",
+        "C-R1": "R1",
+        "C-L2": "L2",
+    }
 
     results = []
 
-    for (
-        candidate_id,
-        available_storage,
-        occupied_storage,
-        edge_capacity,
-        eligibility,
-    ) in candidate_config:
+    for candidate_id, node_id in candidate_to_node.items():
+        node = nodes[node_id]
+        candidate_limit_m3_s = None
+
+        for edge in network.edges:
+            if edge.capacity_constraint_candidate_id == candidate_id:
+                candidate_limit_m3_s = (
+                    edge.candidate_capacity_constraint_m3_s
+                )
+                break
+
         results.append(
             evaluate_candidate(
                 candidate_id=candidate_id,
                 proposed_volume_m3=proposed_volume_m3,
                 duration_seconds=duration_seconds,
-                available_storage_m3=available_storage,
-                edge_capacity_m3_s=edge_capacity,
+                available_storage_m3=node.available_storage_m3,
+                edge_capacity_m3_s=None,
                 j3_water_depth_m=j3_water_depth_m,
-                recharge_eligibility=eligibility,
+                recharge_eligibility=(
+                    node.recharge_eligibility
+                    if candidate_id == "C-R1"
+                    else recharge_eligibility
+                ),
                 j3_water_level_usable=j3_water_level_usable,
-                occupied_storage_m3=occupied_storage,
+                occupied_storage_m3=node.initial_occupied_storage_m3,
+                affected_edges=[],
+                candidate_limit_m3_s=candidate_limit_m3_s,
             )
         )
 
