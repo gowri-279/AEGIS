@@ -2,6 +2,13 @@
 
 UNUSABLE_STATUSES = {"stale", "missing", "invalid", "conflicting"}
 
+# Illustrative risk-confidence values; these are NOT sensor data confidence.
+# They are provisional MVP values, not statistically calibrated probabilities.
+RISK_CONFIDENCE_WATER_LEVEL = 0.8
+RISK_CONFIDENCE_DEGRADED_WARNING = 0.6
+RISK_CONFIDENCE_EDGE_OVERLOAD = 0.8
+RISK_CONFIDENCE_WATER_QUALITY = 0.7
+
 
 def assess_network(readings, modeled_edges=None, water_quality_threshold=None):
     """Assess sensor evidence and modeled risks without choosing a route.
@@ -62,7 +69,7 @@ def assess_network(readings, modeled_edges=None, water_quality_threshold=None):
                 "threshold": 0.80,
                 "unit": "m",
                 "severity": "high",
-                "confidence": wl_j3.get("confidence", 0.0),
+                "confidence": RISK_CONFIDENCE_WATER_LEVEL,
                 "evidence": ["WL-J3 effective reading is at or above 0.80 m"],
                 "impact": "The modeled J3 water-depth constraint is not satisfied.",
             })
@@ -76,7 +83,7 @@ def assess_network(readings, modeled_edges=None, water_quality_threshold=None):
                 "observed_value": value,
                 "threshold": None,
                 "severity": "medium",
-                "confidence": wl_j3.get("confidence", 0.0),
+                "confidence": RISK_CONFIDENCE_DEGRADED_WARNING,
                 "evidence": ["WL-J3 reading is marked degraded but usable"],
                 "impact": "Interpret the water-depth assessment with caution.",
             })
@@ -104,7 +111,7 @@ def assess_network(readings, modeled_edges=None, water_quality_threshold=None):
                 "unit": "m3/s",
                 "utilization": round(utilization, 6),
                 "severity": "high",
-                "confidence": edge.get("confidence", 1.0),
+                "confidence": RISK_CONFIDENCE_EDGE_OVERLOAD,
                 "evidence": ["Supplied flow exceeds the modeled edge capacity"],
                 "impact": "The supplied edge exceeds its modeled capacity.",
             })
@@ -124,7 +131,7 @@ def assess_network(readings, modeled_edges=None, water_quality_threshold=None):
                     "observed_value": reading["effective_value"],
                     "threshold": water_quality_threshold,
                     "severity": "medium",
-                    "confidence": reading.get("confidence", 0.0),
+                    "confidence": RISK_CONFIDENCE_WATER_QUALITY,
                     "evidence": ["Reading exceeds the caller-supplied scenario threshold"],
                     "impact": "The configured illustrative water-quality threshold is exceeded.",
                 })
