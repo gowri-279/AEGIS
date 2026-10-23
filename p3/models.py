@@ -39,11 +39,19 @@ class BaselineComparison:
 
 @dataclass
 class Recommendation:
-    status: str  # recommended, no_feasible_candidate, abstained
+    recommendation_status: str
     selected_candidate_id: Optional[str]
     recommendation_scope: str = "limited_mvp_scope"
     safety_qualified: bool = False
+    rationale: list[str] = field(default_factory=list)
+    uncertainty: list[str] = field(default_factory=list)
+    data_limitations: list[str] = field(default_factory=list)
     reason_codes: list[str] = field(default_factory=list)
+
+    @property
+    def status(self) -> str:
+        """Backward-compatible alias for existing P3 code and tests."""
+        return self.recommendation_status
 
 
 @dataclass
