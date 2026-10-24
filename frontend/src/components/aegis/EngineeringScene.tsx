@@ -98,13 +98,7 @@ function pipeCurve(edge: { from: string; to: string }, positions: Layout, typeBy
   const from = positions[edge.from], to = positions[edge.to];
   if (blueprint) {
     const y = -BLUEPRINT_CONDUIT_DEPTH;
-    const a = new THREE.Vector3(from[0], y, from[2]);
-    const b = new THREE.Vector3(to[0], y, to[2]);
-    const elbow = a.clone().lerp(b, 0.5);
-    const lateral = ((edge.from.length + edge.to.length) % 2 ? 1 : -1) * Math.min(0.65, a.distanceTo(b) * 0.035);
-    elbow.x += lateral;
-    elbow.y = y;
-    return new THREE.CatmullRomCurve3([a, elbow, b], false, "catmullrom", 0.08);
+    return new THREE.LineCurve3(new THREE.Vector3(from[0], y, from[2]), new THREE.Vector3(to[0], y, to[2]));
   }
   const a = new THREE.Vector3(from[0], catchmentHeight(from[0], from[2], basins) - buryDepth(typeById.get(edge.from)), from[2]);
   const b = new THREE.Vector3(to[0], catchmentHeight(to[0], to[2], basins) - buryDepth(typeById.get(edge.to)), to[2]);
@@ -121,9 +115,28 @@ function pointInClearance(x: number, z: number, zones: ClearanceZone[]) {
   return zones.some((zone) => Math.hypot(x - zone.x, z - zone.z) < zone.r);
 }
 
-function insideTerrainPatch(x: number, z: number, center: THREE.Vector3, size: number, margin = 1.35) {
+const TERRAIN_EDGE_MARGIN = 2.1;
+
+function terrainRect(center: THREE.Vector3, size: number) {
+  const half = size / 2 - TERRAIN_EDGE_MARGIN;
+  return { minX: center.x - half, maxX: center.x + half, minZ: center.z - half, maxZ: center.z + half, half };
+}
+
+function insideTerrainPatch(x: number, z: number, center: THREE.Vector3, size: number, margin = TERRAIN_EDGE_MARGIN) {
   const half = size / 2 - margin;
   return Math.abs(x - center.x) <= half && Math.abs(z - center.z) <= half;
+}
+
+function footprintInsideTerrain(x: number, z: number, w: number, d: number, center: THREE.Vector3, size: number) {
+  const hw = w / 2 + 0.12, hd = d / 2 + 0.12;
+  return insideTerrainPatch(x - hw, z - hd, center, size)
+    && insideTerrainPatch(x + hw, z - hd, center, size)
+    && insideTerrainPatch(x - hw, z + hd, center, size)
+    && insideTerrainPatch(x + hw, z + hd, center, size);
+}
+
+function nearestClearance(x: number, z: number, zones: ClearanceZone[]) {
+  return zones.reduce((min, zone) => Math.min(min, Math.hypot(x - zone.x, z - zone.z)), Infinity);
 }
 
 function buildNeighborhoodLayout(center: THREE.Vector3, size: number, zones: ClearanceZone[], basins: Vec3[]) {
@@ -131,62 +144,72 @@ function buildNeighborhoodLayout(center: THREE.Vector3, size: number, zones: Cle
   const trees: { p: Vec3; s: number; variant: number }[] = [];
   const roads: { x: number; z: number; width: number; length: number; rotation: number; primary: boolean }[] = [];
   const parks: { x: number; z: number; w: number; d: number; variant: number }[] = [];
-  const half = size / 2 - 1.35;
-  const minX = center.x - half, maxX = center.x + half;
-  const minZ = center.z - half, maxZ = center.z + half;
-  const cell = 3.4;
-  const cols = Math.max(5, Math.floor((maxX - minX) / cell));
-  const rows = Math.max(5, Math.floor((maxZ - minZ) / cell));
+  const sidewalks: { x: number; z: number; w: number; d: number }[] = [];
+  const { minX, maxX, minZ, maxZ } = terrainRect(center, size);
+  const pitch = 3.5;
+  const streetEvery = 4;
+  const cols = Math.max(6, Math.floor((maxX - minX) / pitch));
+  const rows = Math.max(6, Math.floor((maxZ - minZ) / pitch));
+  const spanX = maxX - minX - 1.2;
+  const spanZ = maxZ - minZ - 1.2;
+  const midX = (minX + maxX) / 2;
+  const midZ = (minZ + maxZ) / 2;
 
   for (let col = 0; col <= cols; col++) {
-    const x = minX + col * cell;
-    if (col % 3 !== 0) continue;
-    if (pointInClearance(x, center.z, zones)) continue;
-    roads.push({ x, z: center.z, width: col % 6 === 0 ? 0.62 : 0.46, length: maxZ - minZ - 0.6, rotation: Math.PI / 2, primary: col % 6 === 0 });
+    if (col % streetEvery !== 0) continue;
+    const x = minX + col * pitch;
+    roads.push({ x, z: midZ, width: col % (streetEvery * 2) === 0 ? 0.58 : 0.44, length: spanZ, rotation: Math.PI / 2, primary: col % (streetEvery * 2) === 0 });
   }
   for (let row = 0; row <= rows; row++) {
-    const z = minZ + row * cell;
-    if (row % 3 !== 0) continue;
-    if (pointInClearance(center.x, z, zones)) continue;
-    roads.push({ x: center.x, z, width: row % 6 === 0 ? 0.62 : 0.46, length: maxX - minX - 0.6, rotation: 0, primary: row % 6 === 0 });
+    if (row % streetEvery !== 0) continue;
+    const z = minZ + row * pitch;
+    roads.push({ x: midX, z, width: row % (streetEvery * 2) === 0 ? 0.58 : 0.44, length: spanX, rotation: 0, primary: row % (streetEvery * 2) === 0 });
   }
 
   for (let col = 0; col < cols; col++) for (let row = 0; row < rows; row++) {
-    const x = minX + col * cell + cell * 0.5;
-    const z = minZ + row * cell + cell * 0.5;
+    const streetCol = col % streetEvery === 0 || (col + 1) % streetEvery === 0;
+    const streetRow = row % streetEvery === 0 || (row + 1) % streetEvery === 0;
+    const x = minX + col * pitch + pitch * 0.5;
+    const z = minZ + row * pitch + pitch * 0.5;
     if (!insideTerrainPatch(x, z, center, size)) continue;
     if (pointInClearance(x, z, zones)) continue;
-    const onStreet = col % 3 === 0 || row % 3 === 0 || (col + 1) % 3 === 0 || (row + 1) % 3 === 0;
-    if (onStreet) {
-      if ((col + row) % 5 === 0) trees.push({ p: [x, catchmentHeight(x, z, basins), z], s: 0.75 + (col % 3) * 0.08, variant: col + row });
+
+    if (streetCol || streetRow) {
+      if ((col + row) % 6 === 0 && footprintInsideTerrain(x, z, 0.9, 0.9, center, size)) {
+        sidewalks.push({ x, z, w: streetCol ? 0.85 : 0.65, d: streetRow ? 0.85 : 0.65 });
+      }
+      if ((col + row) % 4 === 0) {
+        trees.push({ p: [x, catchmentHeight(x, z, basins), z], s: 0.68 + (col % 3) * 0.06, variant: col + row });
+      }
       continue;
     }
-    const lot = (col * 17 + row * 31) % 100;
-    if (lot < 14) {
-      parks.push({ x, z, w: cell * 0.82, d: cell * 0.78, variant: col + row });
+
+    const blockId = Math.floor(col / streetEvery) * 100 + Math.floor(row / streetEvery);
+    const lot = (col * 19 + row * 23 + blockId) % 100;
+    const distNetwork = nearestClearance(x, z, zones);
+
+    if (lot < 16 && footprintInsideTerrain(x, z, pitch * 0.72, pitch * 0.68, center, size)) {
+      parks.push({ x, z, w: pitch * 0.72, d: pitch * 0.68, variant: blockId });
       continue;
     }
-    if (lot < 24) {
-      for (let t = 0; t < 3; t++) {
-        const tx = x + (t - 1) * 0.85, tz = z + ((col + t) % 2 ? 0.55 : -0.45);
+    if (lot < 26) {
+      for (let t = 0; t < 2; t++) {
+        const tx = x + (t === 0 ? -0.75 : 0.75), tz = z + (t === 0 ? 0.55 : -0.55);
         if (!insideTerrainPatch(tx, tz, center, size) || pointInClearance(tx, tz, zones)) continue;
-        trees.push({ p: [tx, catchmentHeight(tx, tz, basins), tz], s: 0.7 + (t % 2) * 0.12, variant: col + row + t });
+        trees.push({ p: [tx, catchmentHeight(tx, tz, basins), tz], s: 0.62 + t * 0.1, variant: col + row + t });
       }
       continue;
     }
-    const variant = (col * 3 + row) % 5;
-    const w = 1.85 + (lot % 5) * 0.22;
-    const d = 1.7 + (lot % 4) * 0.2;
-    const h = 1.05 + (lot % 7) * 0.18 + (col % 4 === 0 ? 0.45 : 0);
+
+    const commercial = distNetwork > 14 && blockId % 3 === 0;
+    const variant = (col * 3 + row + blockId) % 5;
+    const w = commercial ? 2.15 + (lot % 3) * 0.25 : 1.75 + (lot % 4) * 0.2;
+    const d = commercial ? 2 + (lot % 2) * 0.25 : 1.65 + (lot % 3) * 0.18;
+    const h = commercial ? 1.65 + (lot % 4) * 0.35 : 1 + (lot % 5) * 0.22;
+    if (!footprintInsideTerrain(x, z, w, d, center, size)) continue;
     buildings.push({ x, z, w, d, h, variant });
-    if (lot % 3 === 0) {
-      const tx = x + w * 0.35, tz = z - d * 0.38;
-      if (insideTerrainPatch(tx, tz, center, size) && !pointInClearance(tx, tz, zones)) {
-        trees.push({ p: [tx, catchmentHeight(tx, tz, basins), tz], s: 0.65, variant: variant + 2 });
-      }
-    }
   }
-  return { buildings, trees, roads, parks };
+  return { buildings, trees, roads, parks, sidewalks };
 }
 
 function CameraDepth({ depthRef }: { depthRef: DepthRef }) {
@@ -377,15 +400,22 @@ function Building({ x, z, w, d, h, variant, blueprint = false, facadeTexture, ba
 
 function ParkPatch({ x, z, w, d, variant, blueprint, basins }: { x: number; z: number; w: number; d: number; variant: number; blueprint: boolean; basins: Vec3[] }) {
   const y = catchmentHeight(x, z, basins);
-  const treeSpots = useMemo(() => Array.from({ length: 5 }, (_, i) => {
-    const angle = (i / 5) * Math.PI * 2 + variant * 0.4;
-    const radius = (w * 0.22) + (i % 2) * 0.35;
+  const treeSpots = useMemo(() => Array.from({ length: 4 }, (_, i) => {
+    const angle = (i / 4) * Math.PI * 2 + variant * 0.35;
+    const radius = Math.min(w, d) * 0.22 + (i % 2) * 0.28;
     return [Math.cos(angle) * radius, Math.sin(angle) * radius] as [number, number];
-  }), [variant, w]);
+  }), [d, variant, w]);
   return <group position={[x, y + 0.02, z]}>
     <mesh rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[w, d]} /><meshStandardMaterial color={blueprint ? "#1a3338" : "#6d7a5c"} roughness={0.94} /></mesh>
-    {!blueprint && treeSpots.map(([ox, oz], i) => <Tree key={i} position={[ox, 0, oz]} scale={0.55 + (i % 2) * 0.1} variant={variant + i} blueprint={blueprint} />)}
+    {!blueprint && treeSpots.map(([ox, oz], i) => <Tree key={i} position={[ox, 0, oz]} scale={0.5 + (i % 2) * 0.08} variant={variant + i} blueprint={blueprint} />)}
   </group>;
+}
+
+function SidewalkPatch({ x, z, w, d, basins, blueprint }: { x: number; z: number; w: number; d: number; basins: Vec3[]; blueprint: boolean }) {
+  return <mesh position={[x, catchmentHeight(x, z, basins) + 0.03, z]} rotation-x={-Math.PI / 2} receiveShadow>
+    <planeGeometry args={[w, d]} />
+    <meshStandardMaterial color={blueprint ? "#243a3f" : "#9a968f"} roughness={0.96} />
+  </mesh>;
 }
 
 function Tree({ position, scale = 1, variant = 0, blueprint = false }: { position: Vec3; scale?: number; variant?: number; blueprint?: boolean }) {
@@ -395,12 +425,6 @@ function Tree({ position, scale = 1, variant = 0, blueprint = false }: { positio
     <mesh position={[0, trunk * 0.45, 0]} castShadow><cylinderGeometry args={[0.04, 0.07, trunk, 6]} /><meshStandardMaterial color={blueprint ? "#406c72" : "#5c5044"} roughness={1} /></mesh>
     <mesh position={[0, trunk + 0.28, 0]} castShadow><coneGeometry args={[0.38 + (variant % 2) * 0.06, 0.72, 7]} /><meshStandardMaterial color={blueprint ? "#3c6870" : greens[variant % greens.length]} roughness={0.96} /></mesh>
   </group>;
-}
-
-function distanceToSegment(point: Vec3, a: [number, number], b: [number, number]) {
-  const dx = b[0] - a[0], dz = b[1] - a[1];
-  const t = THREE.MathUtils.clamp(((point[0] - a[0]) * dx + (point[2] - a[1]) * dz) / (dx * dx + dz * dz || 1), 0, 1);
-  return Math.hypot(point[0] - (a[0] + dx * t), point[2] - (a[1] + dz * t));
 }
 
 function UrbanEnvironment({ positions, blueprint, clearanceZones, depthRef, focused, basins }: { positions: Layout; blueprint: boolean; clearanceZones: ClearanceZone[]; depthRef: DepthRef; focused: boolean; basins: Vec3[] }) {
@@ -442,6 +466,7 @@ function UrbanEnvironment({ positions, blueprint, clearanceZones, depthRef, focu
   });
   return <group>
     <group ref={environmentRef}>
+      {city.sidewalks.map((walk, i) => <SidewalkPatch key={`walk-${i}`} {...walk} basins={basins} blueprint={blueprint} />)}
       {city.parks.map((park, i) => <ParkPatch key={`park-${i}`} {...park} blueprint={blueprint} basins={basins} />)}
       {city.roads.map((road, i) => <Road key={`road-${i}`} {...road} blueprint={blueprint} basins={basins} />)}
       {city.buildings.map((building, i) => <Building key={i} {...building} blueprint={blueprint} facadeTexture={facadeTexture} basins={basins} />)}
@@ -610,7 +635,7 @@ function SceneContents({ data, view, selected, onSelect, healthMode, simulationA
     data.network.nodes.forEach((node) => {
       const point = allPositions[node.id];
       if (!point) return;
-      const r = node.type === "storage" ? 11.5 : node.type === "junction" ? 7.8 : node.type === "recharge" ? 8.8 : 7;
+      const r = node.type === "storage" ? 12.5 : node.type === "junction" ? 9.2 : node.type === "recharge" ? 9.5 : 7.5;
       zones.push({ x: point[0], z: point[2], r });
     });
     sampleIds.forEach((id) => {
