@@ -3,7 +3,7 @@ import * as THREE from "three";
 import type { Vec3 } from "@/data/networkLayout";
 import { twinPalette } from "./materials";
 import { surfaceY } from "./presentationLayout";
-import { GREYBOX } from "./visualConfig";
+import { NETWORK } from "./visualConfig";
 
 type Props = {
   blueprint: boolean;
@@ -14,7 +14,7 @@ type Props = {
 export function CatchmentTerrain({ blueprint, storageBasins }: Props) {
   const mesh = useRef<THREE.Mesh>(null);
   const geometry = useMemo(() => {
-    const size = GREYBOX.terrainSize;
+    const size = NETWORK.terrainFootprint;
     const steps = 64;
     const vertices: number[] = [];
     const indices: number[] = [];

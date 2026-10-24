@@ -3,7 +3,8 @@ import { ConduitVisual } from "./edges/ConduitVisual";
 import { FloodEffect } from "./effects/FloodEffect";
 import { HealthRiskMarkers } from "./effects/HealthRiskMarkers";
 import { RainEffect } from "./effects/RainEffect";
-import { NetworkNodeVisual, sampleNodesFromIds } from "./nodes/NetworkNodeVisual";
+import { NetworkNodeVisual, sampleNodesFromIds, storageVariantByNodeId } from "./nodes/NetworkNodeVisual";
+import { useMemo } from "react";
 import type { NodeLayout } from "./types";
 
 type Props = {
@@ -51,6 +52,7 @@ export function NetworkLayer({
   const activeRoute = new Set(simulationActive && selectedCandidate ? selectedCandidate.route_edge_ids : []);
   const emphasis = Boolean(selected || activeRoute.size);
   const sampleNodes = sampleNodesFromIds(sampleIds);
+  const storageVariants = useMemo(() => storageVariantByNodeId(data.network.nodes), [data.network.nodes]);
 
   return (
     <group name="network-layer">
@@ -93,6 +95,9 @@ export function NetworkLayer({
             blueprint={blueprint}
             onSelect={onSelect}
             sensors={data.sensors}
+            edges={data.network.edges}
+            allPositions={allPositions}
+            storageVariantIndex={storageVariants.get(node.id) ?? 0}
           />
         );
       })}
@@ -110,6 +115,9 @@ export function NetworkLayer({
               blueprint={blueprint}
               onSelect={onSelect}
               sensors={[]}
+              edges={[]}
+              allPositions={allPositions}
+              storageVariantIndex={0}
               sample
             />
           );

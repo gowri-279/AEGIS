@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import * as THREE from "three";
+import { edgeLayout } from "@/data/networkLayout";
 import type { NetworkEdge } from "@/data/types";
 import { twinPalette } from "../materials";
 import { pipeCurve } from "../pipeCurve";
 import type { NodeLayout } from "../types";
-import { GREYBOX } from "../visualConfig";
+import { NETWORK } from "../visualConfig";
 import { FlowDots } from "../effects/FlowDots";
 
 type Props = {
@@ -34,8 +35,12 @@ export function ConduitVisual({
     () => pipeCurve(edge, positions, typeById, blueprint),
     [blueprint, edge, positions, typeById],
   );
-  const opacity = dimmed ? 0.18 : 0.9;
-  const radius = selected ? GREYBOX.pipeRadiusSelected : GREYBOX.pipeRadius;
+  const cfg = NETWORK.conduit;
+  const layoutRadius = edge.id ? edgeLayout[edge.id]?.radius : undefined;
+  const opacity = dimmed ? 0.18 : 0.92;
+  const outerRadius = selected
+    ? cfg.outerRadiusSelected
+    : layoutRadius ?? cfg.outerRadius;
   const arrowPoint = curve.getPoint(0.72);
   const arrowTangent = curve.getTangent(0.72);
   const arrowRotation = useMemo(
@@ -49,6 +54,7 @@ export function ConduitVisual({
       : blueprint
         ? twinPalette.network.pipeBlueprint
         : twinPalette.network.pipe;
+  const innerColor = blueprint ? twinPalette.network.pipeInnerBlueprint : twinPalette.network.pipeInner;
 
   return (
     <group
@@ -58,28 +64,30 @@ export function ConduitVisual({
       }}
     >
       <mesh>
-        <tubeGeometry args={[curve, 64, radius, 14, false]} />
-        <meshStandardMaterial color={pipeColor} roughness={0.82} metalness={0.1} transparent opacity={opacity} />
+        <tubeGeometry args={[curve, cfg.segments, outerRadius, cfg.radialSegments, false]} />
+        <meshStandardMaterial color={pipeColor} roughness={0.84} metalness={0.08} transparent opacity={opacity} />
       </mesh>
       <mesh>
-        <tubeGeometry args={[curve, 64, 0.07, 10, false]} />
+        <tubeGeometry args={[curve, cfg.segments, cfg.innerRadius, 10, false]} />
         <meshStandardMaterial
-          color={blueprint ? "#12bade" : "#247a91"}
-          emissive={blueprint ? "#087c98" : "#064052"}
-          emissiveIntensity={blueprint ? 0.22 : 0.08}
-          roughness={0.72}
+          color={innerColor}
+          emissive={innerColor}
+          emissiveIntensity={
+            blueprint ? cfg.innerEmissiveBlueprint : cfg.innerEmissiveTerrain
+          }
+          roughness={0.74}
           transparent
-          opacity={dimmed ? 0.12 : 0.92}
+          opacity={dimmed ? 0.14 : 0.9}
         />
       </mesh>
       <mesh position={arrowPoint} quaternion={arrowRotation}>
-        <coneGeometry args={[0.24, 0.56, 8]} />
+        <coneGeometry args={[cfg.arrowRadius, cfg.arrowHeight, 10]} />
         <meshStandardMaterial
-          color={blueprint ? "#27c9e8" : "#51676a"}
-          metalness={0.25}
-          roughness={0.55}
+          color={blueprint ? twinPalette.network.pipeInnerBlueprint : "#51676a"}
+          metalness={0.2}
+          roughness={0.58}
           transparent
-          opacity={dimmed ? 0.15 : 0.88}
+          opacity={dimmed ? 0.16 : 0.86}
         />
       </mesh>
       {simulationActive && <FlowDots curve={curve} dimmed={dimmed} />}
