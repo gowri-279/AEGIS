@@ -1,11 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Activity, Bot, CloudRain, Droplets, Gauge, Map, Play, RotateCcw, ShieldAlert, Square, Waves, X } from "lucide-react";
+import { Activity, Bot, CloudRain, Droplets, Gauge, Map, Play, ShieldAlert, Square, Waves, X } from "lucide-react";
 import { getCanonicalResponse, runScenario } from "@/services/api";
 import type { FixtureId } from "@/data/mockCanonicalResponse";
 import type { CanonicalResponse, NetworkEdge, NetworkNode } from "@/data/types";
 import { EngineeringScene, type EngineeringView } from "./EngineeringScene";
 import "./engineering.css";
 import { cn } from "@/lib/utils";
+import { NetworkInventory } from "./NetworkInventory";
+import { ComponentProfile } from "./ComponentProfile";
+import { useNetworkSelection } from "./useNetworkSelection";
+import { BobNavigator } from "./BobNavigator";
 
 type Mode = "network" | "health" | "simulate" | "review";
 type WhatIf = "standard" | "heavy-rain" | "flooding" | "sensor-failure";
@@ -24,13 +28,6 @@ const whatIfs: { id: WhatIf; label: string; detail: string; fixture: FixtureId }
   { id: "sensor-failure", label: "Sensor failure", detail: "J3 water-level data unavailable", fixture: "critical_stale" },
 ];
 
-const sampleNodes: NetworkNode[] = [
-  { id: "V5", type: "storage", label: "V5 sample structure", sensor_ids: [], attributes: {} },
-  { id: "V6", type: "recharge", label: "V6 sample structure", sensor_ids: [], attributes: {} },
-  { id: "V7", type: "junction", label: "V7 sample structure", sensor_ids: [], attributes: {} },
-  { id: "V8", type: "storage", label: "V8 sample structure", sensor_ids: [], attributes: {} },
-];
-
 function visualTargetId(targetId: string, data: CanonicalResponse) {
   if (data.network.nodes.some((node) => node.id === targetId)) return targetId;
   const sensor = data.sensors.find((item) => item.id === targetId);
@@ -41,10 +38,11 @@ export function EngineeringApp() {
   const [data, setData] = useState<CanonicalResponse | null>(null);
   const [mode, setMode] = useState<Mode>("network");
   const [view, setView] = useState<EngineeringView>("terrain");
-  const [selected, setSelected] = useState<string | null>(null);
+  const { selectedId: selected, select: setSelected } = useNetworkSelection();
   const [whatIf, setWhatIf] = useState<WhatIf>("standard");
   const [running, setRunning] = useState(false);
   const [bobOpen, setBobOpen] = useState(true);
+  const [samplesVisible, setSamplesVisible] = useState(false);
 
   useEffect(() => {
     getCanonicalResponse("standard").then(setData);
@@ -53,7 +51,7 @@ export function EngineeringApp() {
   const canonicalNodes = useMemo(() => data?.network.nodes ?? [], [data]);
   const selectedNode = useMemo(() => {
     if (!selected || !data) return null;
-    return canonicalNodes.find((node) => node.id === selected) ?? sampleNodes.find((node) => node.id === selected) ?? null;
+    return canonicalNodes.find((node) => node.id === selected) ?? null;
   }, [canonicalNodes, data, selected]);
   const selectedEdge = useMemo(() => data?.network.edges.find((edge) => edge.id === selected) ?? null, [data, selected]);
 
@@ -82,6 +80,7 @@ export function EngineeringApp() {
       view={view}
       selected={selected}
       onSelect={setSelected}
+      samplesVisible={mode === "network" && samplesVisible}
       healthMode={mode === "health" || mode === "review"}
       simulationActive={simulationActive}
       rainActive={rainActive}
@@ -89,12 +88,12 @@ export function EngineeringApp() {
     />
 
     <header className="engineering-header">
-      <button className="engineering-brand" onClick={() => { setMode("network"); setSelected(null); }}>
+      <button className="engineering-brand" onClick={() => { setMode("network"); setSelected(null); setSamplesVisible(false); }}>
         <span className="engineering-brand-mark"><Waves size={18} /></span>
         <span><strong>AEGIS</strong><small>BENGALURU CATCHMENT · SYNTHETIC MODEL 01</small></span>
       </button>
       <nav className="engineering-nav" aria-label="Primary">
-        {modes.map((item) => <button key={item.id} className={cn(item.id === mode && "active")} onClick={() => { setMode(item.id); setSelected(null); }}>
+        {modes.map((item) => <button key={item.id} className={cn(item.id === mode && "active")} onClick={() => { setMode(item.id); setSelected(null); if (item.id === "network") setSamplesVisible(false); }}>
           {item.id === "network" ? <Map size={13} /> : item.id === "health" ? <Activity size={13} /> : item.id === "simulate" ? <Play size={13} /> : <ShieldAlert size={13} />}
           {item.label}
         </button>)}
@@ -103,28 +102,29 @@ export function EngineeringApp() {
     </header>
 
     <div className="engineering-title">
-      <span>{view === "terrain" ? "URBAN CATCHMENT" : view === "blueprint" ? "NETWORK EXOSKELETON" : "UNDERGROUND NETWORK"}</span>
+      <span>URBAN CATCHMENT</span>
       <small>{mode === "simulate" ? "WHAT-IF SIMULATION" : mode === "health" ? "NETWORK HEALTH LAYER" : mode === "review" ? "ENGINEERING REVIEW QUEUE" : "INTERACTIVE DIGITAL TWIN"}</small>
     </div>
 
     <aside className="engineering-inspector">
-      {selectedNode ? <NodeInspector data={data} node={selectedNode} onClose={() => setSelected(null)} onSimulate={() => { setMode("simulate"); setWhatIf("standard"); }} />
+      {mode === "network" ? <div className="network-left-rail"><NetworkInventory data={data} selectedId={selected} onSelect={(id) => { setSamplesVisible(/^V[5-8]$/.test(id)); setSelected(id); }} onSamplesFilter={setSamplesVisible} /><BobNavigator data={data} onSelect={setSelected} /></div>
+        : selectedNode ? <NodeInspector data={data} node={selectedNode} onClose={() => setSelected(null)} onSimulate={() => { setMode("simulate"); setWhatIf("standard"); }} />
         : selectedEdge ? <EdgeInspector edge={selectedEdge} />
         : mode === "health" ? <HealthInspector data={data} />
         : mode === "simulate" ? <SimulationInspector data={data} whatIf={whatIf} setWhatIf={setWhatIf} running={running} onRun={simulate} />
-        : mode === "review" ? <ReviewInspector data={data} onSelect={(targetId) => setSelected(visualTargetId(targetId, data))} />
-        : <NetworkInspector data={data} onSelect={setSelected} />}
+        : <ReviewInspector data={data} onSelect={(targetId) => setSelected(visualTargetId(targetId, data))} />}
     </aside>
 
-    {bobOpen ? <BobInsight data={data} selected={selected} onClose={() => setBobOpen(false)} onSimulate={() => { setMode("simulate"); setWhatIf("standard"); }} /> : <button className="bob-reopen" onClick={() => setBobOpen(true)}><Bot size={15} /> BOB</button>}
+    {mode === "network" && selected && <ComponentProfile data={data} id={selected} onClose={() => setSelected(null)} />}
+
+    {mode !== "network" && (bobOpen ? <BobInsight data={data} selected={selected} onClose={() => setBobOpen(false)} onSimulate={() => { setMode("simulate"); setWhatIf("standard"); }} /> : <button className="bob-reopen" onClick={() => setBobOpen(true)}><Bot size={15} /> BOB</button>)}
 
     <div className="engineering-legend">
       <span><i className="legend-junction" /> JUNCTION</span><span><i className="legend-storage" /> STORAGE</span><span><i className="legend-recharge" /> RECHARGE</span><span><i className="legend-sensor" /> SENSOR</span><span><i className="legend-flow" /> FLOW</span>
     </div>
 
-    <div className="view-switcher">
-      {(["terrain", "blueprint", "underground"] as EngineeringView[]).map((item) => <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>{item}</button>)}
-      <button className="reset-view" onClick={() => setSelected(null)}><RotateCcw size={12} /> RESET</button>
+    <div className="network-view-toggle" role="group" aria-label="Network view">
+      {(["terrain", "blueprint"] as EngineeringView[]).map((item) => <button key={item} className={view === item ? "active" : ""} onClick={() => setView(item)}>{item}</button>)}
     </div>
 
     <div className="engineering-disclaimer">Synthetic / illustrative MVP · flow and terrain visuals are not validated hydraulic outputs.</div>
@@ -136,25 +136,13 @@ function Panel({ children, className }: { children: React.ReactNode; className?:
 }
 function PanelTitle({ children }: { children: React.ReactNode }) { return <div className="engineering-panel-title">{children}</div>; }
 
-function NetworkInspector({ data, onSelect }: { data: CanonicalResponse; onSelect: (id: string) => void }) {
-  return <Panel>
-    <PanelTitle>NETWORK INVENTORY</PanelTitle>
-    <div className="engineering-stat"><strong>8</strong><span>visualized structures</span></div>
-    <div className="engineering-stat"><strong>{data.network.edges.length}</strong><span>canonical conduits</span></div>
-    <div className="engineering-rule" />
-    <div className="engineering-list">
-      {data.network.nodes.map((node) => <button key={node.id} onClick={() => onSelect(node.id)}><span>{node.id}</span><small>{node.type.toUpperCase()}</small></button>)}
-      {sampleNodes.filter((node) => !data.network.nodes.some((canonical) => canonical.id === node.id)).map((node) => <button key={node.id} onClick={() => onSelect(node.id)}><span>{node.id}</span><small>SAMPLE STRUCTURE</small></button>)}
-    </div>
-  </Panel>;
-}
-
 function NodeInspector({ data, node, onClose, onSimulate }: { data: CanonicalResponse; node: NetworkNode; onClose: () => void; onSimulate: () => void }) {
   const candidate = node.candidate_id ? data.candidates.find((item) => item.id === node.candidate_id) : null;
+  const waterDepth = data.sensors.find((sensor) => sensor.node_id === node.id && sensor.variable === "water_depth")?.effective_value;
   return <Panel>
     <div className="engineering-inspector-head"><div><span className="eyebrow">COMPONENT</span><h2>{node.id}</h2><small>{node.type.toUpperCase()}</small></div><button onClick={onClose}><X size={15} /></button></div>
     {node.type === "storage" && <Metric label="AVAILABLE STORAGE" value={`${node.attributes?.available_storage_m3 ?? candidate?.available_storage_m3 ?? "—"} m³`} />}
-    {node.type === "junction" && <Metric label="STANDARD DEPTH" value="0.60 m" />}
+    {node.type === "junction" && <Metric label="WATER DEPTH" value={waterDepth == null ? "Unavailable" : `${waterDepth} m`} />}
     {node.type === "recharge" && <Metric label="ELIGIBILITY" value={candidate?.eligible ? "ELIGIBLE" : "INELIGIBLE"} />}
     {candidate && <><div className="engineering-rule" /><Metric label="CANDIDATE" value={candidate.id} /><Metric label="CONSTRAINTS" value={candidate.constraints.every((item) => item.status === "pass") ? "PASS" : "REVIEW"} /></>}
     {node.id.startsWith("V") && <p className="engineering-note">Frontend-only sample structure used to populate the illustrative urban catchment. It is not part of the canonical backend topology.</p>}
