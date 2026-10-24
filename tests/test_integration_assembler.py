@@ -1,6 +1,8 @@
 import unittest
 
 from backend.integration.assembler import assemble_canonical_response
+from backend.network.fixtures import build_demo_network
+from backend.network.serialization import serialize_network
 
 
 class CanonicalResponseAssemblerTests(unittest.TestCase):
@@ -77,6 +79,46 @@ class CanonicalResponseAssemblerTests(unittest.TestCase):
                 ranking=[],
                 recommendation=self.recommendation,
             )
+
+    def test_accepts_serialized_p1_network(self):
+        network = serialize_network(build_demo_network())
+
+        response = assemble_canonical_response(
+            network=network,
+            network_state={"sensors": []},
+            assessed_state=self.assessed_state,
+            scenario={"scenario_id": "storage_and_recharge_demo"},
+            candidate_evaluations=[],
+            simulation_result={},
+            baseline_comparison={},
+            ranking=[],
+            recommendation=self.recommendation,
+        )
+
+        self.assertEqual(response["network"], network)
+        self.assertEqual(len(response["network"]["nodes"]), 8)
+        self.assertEqual(len(response["network"]["edges"]), 8)
+
+    def test_assembler_does_not_mutate_serialized_network(self):
+        network = serialize_network(build_demo_network())
+        original_network = {
+            key: value.copy() if isinstance(value, list) else value
+            for key, value in network.items()
+        }
+
+        assemble_canonical_response(
+            network=network,
+            network_state={"sensors": []},
+            assessed_state=self.assessed_state,
+            scenario={"scenario_id": "storage_and_recharge_demo"},
+            candidate_evaluations=[],
+            simulation_result={},
+            baseline_comparison={},
+            ranking=[],
+            recommendation=self.recommendation,
+        )
+
+        self.assertEqual(network, original_network)
 
 
 if __name__ == "__main__":
