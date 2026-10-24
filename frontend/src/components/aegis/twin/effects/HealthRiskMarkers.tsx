@@ -1,4 +1,5 @@
 import type { CanonicalResponse } from "@/data/types";
+import { twinPalette } from "../materials";
 import { surfaceY } from "../presentationLayout";
 import type { NodeLayout } from "../types";
 
@@ -9,7 +10,10 @@ export function HealthRiskMarkers({ data, positions }: { data: CanonicalResponse
         const sensorNode = data.sensors.find((sensor) => sensor.id === risk.target_id)?.node_id;
         const target = positions[risk.target_id] ?? (sensorNode ? positions[sensorNode] : undefined);
         if (!target) return null;
-        const color = risk.severity === "critical" || risk.severity === "high" ? "#c86254" : "#c7a55f";
+        const color =
+          risk.severity === "critical" || risk.severity === "high"
+            ? twinPalette.critical.red
+            : twinPalette.attention.amber;
         return (
           <mesh
             key={risk.id}

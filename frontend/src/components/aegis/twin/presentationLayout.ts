@@ -17,19 +17,57 @@ export function samplePositions(canonical: NodeLayout, ids = SAMPLE_NODE_IDS.fil
   }));
 }
 
-export function networkFrame(layout: NodeLayout) {
+export type NetworkBounds = {
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  center: Vec3;
+  span: number;
+};
+
+export function networkBounds(layout: NodeLayout): NetworkBounds {
   const points = Object.values(layout);
-  if (!points.length) return { target: [0, 0, 0] as Vec3, camera: [8, 18, 26] as Vec3 };
-  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  if (!points.length) {
+    return { minX: -8, maxX: 8, minZ: -8, maxZ: 8, center: [0, 0, 0], span: 16 };
+  }
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
   points.forEach(([x, , z]) => {
-    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
-    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z);
+    maxZ = Math.max(maxZ, z);
   });
-  const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
-  const span = Math.max(maxX - minX, maxZ - minZ, 14);
-  const distance = Math.min(Math.max(span * 1.35, 18), 38);
+  const cx = (minX + maxX) / 2;
+  const cz = (minZ + maxZ) / 2;
+  const cy = surfaceY(cx, cz);
+  const span = Math.max(maxX - minX, maxZ - minZ, 12);
+  return { minX, maxX, minZ, maxZ, center: [cx, cy, cz], span };
+}
+
+/** Tight default camera framing for the canonical network footprint (presentation only). */
+export function networkFrame(layout: NodeLayout) {
+  const bounds = networkBounds(layout);
+  const { center, span } = bounds;
+  const [cx, cy, cz] = center;
+  const distance = Math.min(Math.max(span * 1.05, 16), 32);
+  const pitch = 0.62;
+  const yaw = 0.72;
+  const horizontal = Math.cos(pitch) * distance;
   return {
-    target: [cx, 0, cz] as Vec3,
-    camera: [cx + distance * 0.38, distance * 0.72, cz + distance * 0.82] as Vec3,
+    bounds,
+    target: [cx, cy, cz] as Vec3,
+    camera: [
+      cx + Math.sin(yaw) * horizontal,
+      cy + Math.sin(pitch) * distance,
+      cz + Math.cos(yaw) * horizontal,
+    ] as Vec3,
+    orbit: {
+      minDistance: Math.max(span * 0.42, 9),
+      maxDistance: Math.min(span * 2.4, 72),
+    },
   };
 }

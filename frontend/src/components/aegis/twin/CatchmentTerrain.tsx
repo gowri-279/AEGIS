@@ -1,21 +1,20 @@
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
-import type { Vec3 } from "@/data/networkLayout";
 import { twinPalette } from "./materials";
 import { surfaceY } from "./presentationLayout";
 import { NETWORK } from "./visualConfig";
 
 type Props = {
   blueprint: boolean;
-  storageBasins: Vec3[];
+  storageBasins: unknown[];
 };
 
-/** Phase 1 greybox terrain — replace with heightfield art in a later pass. */
-export function CatchmentTerrain({ blueprint, storageBasins }: Props) {
+/** Subdued catchment plane — network layer remains the visual hero. */
+export function CatchmentTerrain({ blueprint }: Props) {
   const mesh = useRef<THREE.Mesh>(null);
   const geometry = useMemo(() => {
     const size = NETWORK.terrainFootprint;
-    const steps = 64;
+    const steps = 48;
     const vertices: number[] = [];
     const indices: number[] = [];
     const half = size / 2;
@@ -23,7 +22,7 @@ export function CatchmentTerrain({ blueprint, storageBasins }: Props) {
       for (let x = 0; x <= steps; x++) {
         const px = (x / steps) * size - half;
         const pz = (z / steps) * size - half;
-        vertices.push(px, surfaceY(px, pz), pz);
+        vertices.push(px, surfaceY(px, pz) * 0.35, pz);
       }
     }
     for (let z = 0; z < steps; z++) {
@@ -43,27 +42,18 @@ export function CatchmentTerrain({ blueprint, storageBasins }: Props) {
   }, []);
 
   return (
-    <group>
-      <mesh ref={mesh} geometry={geometry} receiveShadow rotation={[0, 0, 0]}>
+    <group renderOrder={NETWORK.presentation.terrainRenderOrder}>
+      <mesh ref={mesh} geometry={geometry} receiveShadow>
         <meshStandardMaterial
           color={blueprint ? twinPalette.terrain.blueprint : twinPalette.terrain.terrain}
-          wireframe={blueprint}
-          roughness={0.92}
-          metalness={0.02}
+          wireframe={false}
+          roughness={0.98}
+          metalness={0}
+          transparent
+          opacity={blueprint ? 0.92 : 0.88}
           side={THREE.DoubleSide}
         />
       </mesh>
-      {!blueprint &&
-        storageBasins.map((basin, i) => (
-          <mesh
-            key={i}
-            rotation-x={-Math.PI / 2}
-            position={[basin[0], surfaceY(basin[0], basin[2]) - 0.02, basin[2]]}
-          >
-            <circleGeometry args={[4.8, 28]} />
-            <meshStandardMaterial color="#5a8a96" transparent opacity={0.35} />
-          </mesh>
-        ))}
     </group>
   );
 }

@@ -44,15 +44,16 @@ export function StorageBasinVisual({ blueprint, selected, dimmed, seed, variantI
         <meshPhysicalMaterial
           color={palette.water}
           emissive={palette.waterEmissive}
-          emissiveIntensity={blueprint ? 0.08 : 0.12}
-          roughness={blueprint ? 0.22 : 0.26}
-          metalness={0.06}
-          clearcoat={0.88}
-          clearcoatRoughness={0.14}
-          toneMapped={false}
+          emissiveIntensity={0}
+          roughness={blueprint ? 0.35 : 0.18}
+          metalness={0.02}
+          clearcoat={blueprint ? 0.35 : 0.72}
+          clearcoatRoughness={0.22}
+          reflectivity={0.55}
+          ior={1.33}
           side={THREE.DoubleSide}
           transparent={dimmed}
-          opacity={dimmed ? 0.72 : 1}
+          opacity={dimmed ? 0.72 : blueprint ? 0.88 : 0.94}
         />
       </mesh>
       <lineLoop geometry={geometries.outline} position={[0, cfg.waterRestY + cfg.outlineLift, 0]}>
@@ -70,11 +71,11 @@ export function StorageBasinVisual({ blueprint, selected, dimmed, seed, variantI
         >
           <mesh position={[0, 0.06, 0]}>
             <boxGeometry args={[cfg.portStructureWidth, 0.3, 0.46]} />
-            <meshStandardMaterial color={palette.port} roughness={0.78} wireframe={blueprint} />
+            <meshStandardMaterial color={palette.port} roughness={0.78} metalness={0.05} />
           </mesh>
           <mesh position={[0, 0.07, 0.24]}>
             <boxGeometry args={[0.36, 0.16, 0.025]} />
-            <meshStandardMaterial color={palette.portGrate} emissive={blueprint ? palette.portGrate : "#0b4454"} emissiveIntensity={blueprint ? 0.06 : 0.02} />
+            <meshStandardMaterial color={palette.portGrate} roughness={0.86} metalness={0.08} />
           </mesh>
           <PipeTransitionCollar blueprint={blueprint} dimmed={dimmed} x={0} z={0.38} rotationY={0} />
         </group>

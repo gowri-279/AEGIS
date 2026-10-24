@@ -2,6 +2,7 @@ import { Html } from "@react-three/drei";
 import { useMemo, useState } from "react";
 import type { CanonicalResponse, NetworkEdge, NetworkNode } from "@/data/types";
 import { surfaceY } from "../presentationLayout";
+import { twinPalette } from "../materials";
 import { NETWORK } from "../visualConfig";
 import { JunctionChamber } from "./JunctionChamber";
 import { RechargeStructureVisual } from "./RechargeStructureVisual";
@@ -90,10 +91,10 @@ export function NetworkNodeVisual({
       {active && (
         <mesh position={[0, 0.04, 0]} rotation-x={-Math.PI / 2}>
           <ringGeometry args={[selectionRadius, selectionRadius + NETWORK.selectionRing.width, 48]} />
-          <meshBasicMaterial color="#d3b477" toneMapped={false} />
+          <meshBasicMaterial color={twinPalette.attention.amberSoft} toneMapped={false} transparent opacity={0.92} />
         </mesh>
       )}
-      <Html position={[0, labelY, 0]} center distanceFactor={34} style={{ pointerEvents: "none" }}>
+      <Html position={[0, labelY, 0]} center distanceFactor={NETWORK.presentation.labelDistanceFactor} style={{ pointerEvents: "none" }}>
         <div
           className={`scene-label ${active ? "active" : ""} ${blueprint ? "blueprint-label" : ""} ${sample ? "sample-label" : ""}`}
         >

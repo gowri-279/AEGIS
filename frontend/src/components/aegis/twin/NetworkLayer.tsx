@@ -6,6 +6,7 @@ import { RainEffect } from "./effects/RainEffect";
 import { NetworkNodeVisual, sampleNodesFromIds, storageVariantByNodeId } from "./nodes/NetworkNodeVisual";
 import { useMemo } from "react";
 import type { NodeLayout } from "./types";
+import { NETWORK } from "./visualConfig";
 
 type Props = {
   data: CanonicalResponse;
@@ -55,7 +56,7 @@ export function NetworkLayer({
   const storageVariants = useMemo(() => storageVariantByNodeId(data.network.nodes), [data.network.nodes]);
 
   return (
-    <group name="network-layer">
+    <group name="network-layer" renderOrder={NETWORK.presentation.networkRenderOrder}>
       {data.network.edges.map((edge) => {
         if (!allPositions[edge.from] || !allPositions[edge.to]) return null;
         const isConnected = connectedIds.has(edge.id);

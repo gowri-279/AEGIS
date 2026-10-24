@@ -15,7 +15,7 @@ export function FlowDots({ curve, dimmed }: { curve: CatmullRomCurve3; dimmed: b
       {Array.from({ length: 12 }, (_, i) => (
         <mesh key={i} scale={0.09}>
           <sphereGeometry args={[1, 7, 6]} />
-          <meshBasicMaterial color="#5ce0ff" />
+          <meshBasicMaterial color="#6eb8c9" transparent opacity={0.85} />
         </mesh>
       ))}
     </group>
