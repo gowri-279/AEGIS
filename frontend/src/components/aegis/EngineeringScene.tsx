@@ -11,9 +11,34 @@ type DepthRef = { current: number };
 type Layout = Record<string, Vec3>;
 const SENSOR_COLORS: Record<SensorStatus, string> = { fresh: "#75a879", degraded: "#c9a25c", stale: "#849090", missing: "#849090", invalid: "#bd5f51", conflicting: "#c9a25c" };
 const SURFACE_Y = (x: number, z: number) => 0.12 * Math.sin(x * 0.17) + 0.16 * Math.cos(z * 0.14) + 0.08 * Math.sin((x + z) * 0.11) + 0.28 * Math.sin(x * 0.055 + 0.8) + 0.22 * Math.cos(z * 0.07 - 0.5);
-const BASIN_RX = 5;
-const BASIN_RZ = 3.7;
+/** Presentation-only dimensions — not pipe diameter, capacity, or survey geometry. */
+const BASIN_RX = 6.4;
+const BASIN_RZ = 4.8;
+const PIPE_RADIUS = { base: 0.34, selected: 0.4, flowHint: 0.11 };
+const SUBSURFACE_DEPTH = 0.22;
+const URBAN_BASE_OPACITY = 0.38;
+const URBAN_FOCUSED_OPACITY = 0.18;
+const ORBIT_MAX_POLAR = Math.PI / 2 + 0.34;
 const SAMPLE_IDS = ["V5", "V6", "V7", "V8"];
+
+function networkFrame(layout: Layout) {
+  const points = Object.values(layout);
+  if (!points.length) return { target: new THREE.Vector3(0, 0, 0), position: new THREE.Vector3(8, 18, 26) };
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  points.forEach(([x, , z]) => {
+    minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+    minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z);
+  });
+  const target = new THREE.Vector3((minX + maxX) / 2, 0, (minZ + maxZ) / 2);
+  const span = Math.max(maxX - minX, maxZ - minZ, 14);
+  const distance = THREE.MathUtils.clamp(span * 1.55, 18, 42);
+  const position = target.clone().add(new THREE.Vector3(distance * 0.34, distance * 0.72, distance * 0.92));
+  return { target, position };
+}
+
+function subsurfaceInspection(depthRef: DepthRef) {
+  return depthRef.current > SUBSURFACE_DEPTH;
+}
 
 function samplePositions(canonical: Layout, ids = SAMPLE_IDS.filter((id) => !(id in canonical))): Layout {
   const points = Object.values(canonical);
@@ -47,33 +72,27 @@ function CameraDepth({ depthRef }: { depthRef: DepthRef }) {
 function SceneAtmosphere({ blueprint, depthRef }: { blueprint: boolean; depthRef: DepthRef }) {
   const { scene, gl } = useThree();
   const color = useMemo(() => new THREE.Color(), []);
-  const underground = useRef(false);
   const terrainBackground = useMemo(() => new THREE.Color("#acb8b1"), []);
-  const undergroundBackground = useMemo(() => new THREE.Color("#343a36"), []);
+  const subsurfaceBackground = useMemo(() => new THREE.Color("#4a524d"), []);
   const blueprintBackground = useMemo(() => new THREE.Color("#142126"), []);
   useFrame(() => {
-    const background = blueprint ? blueprintBackground : color.copy(terrainBackground).lerp(undergroundBackground, depthRef.current);
-    const belowSurface = !blueprint && depthRef.current > 0.08;
-    if (belowSurface !== underground.current) {
-      scene.background = belowSurface ? null : new THREE.Color();
-      underground.current = belowSurface;
-    }
+    const inspect = !blueprint && subsurfaceInspection(depthRef);
+    const background = blueprint ? blueprintBackground : color.copy(inspect ? subsurfaceBackground : terrainBackground);
     gl.setClearColor(background);
-    if (scene.background instanceof THREE.Color) scene.background.copy(background);
+    if (!(scene.background instanceof THREE.Color)) scene.background = new THREE.Color();
+    scene.background.copy(background);
     if (scene.fog instanceof THREE.Fog) scene.fog.color.copy(background);
   });
   return null;
 }
 
-function CameraHome({ controlsRef }: { controlsRef: ControlsRef }) {
+function CameraHome({ controlsRef, frame }: { controlsRef: ControlsRef; frame: { target: THREE.Vector3; position: THREE.Vector3 } }) {
   const { camera } = useThree();
   const positioned = useRef(false);
   useFrame(() => {
     if (positioned.current || !controlsRef.current) return;
-    const target = new THREE.Vector3(-2.5, 0, 0);
-    const offset = camera.position.clone().sub(controlsRef.current.target);
-    controlsRef.current.target.copy(target);
-    camera.position.copy(target.add(offset));
+    controlsRef.current.target.copy(frame.target);
+    camera.position.copy(frame.position);
     controlsRef.current.update();
     positioned.current = true;
   });
@@ -96,8 +115,8 @@ function CameraFocus({ selected, data, positions, controlsRef }: { selected: str
         const target = controlsRef.current.target.clone();
         const offset = camera.position.clone().sub(target);
         const node = data.network.nodes.find((item) => item.id === nodeId);
-        const focusDistance = node?.type === "storage" ? 20 : node?.type === "recharge" ? 16 : 14;
-        const distance = THREE.MathUtils.clamp(Math.min(offset.length() * 0.62, focusDistance), 11, 25);
+        const focusDistance = node?.type === "storage" ? 24 : node?.type === "recharge" ? 20 : 17;
+        const distance = THREE.MathUtils.clamp(Math.min(offset.length() * 0.62, focusDistance), 13, 30);
         if (offset.lengthSq() < 0.01) offset.set(1, 0.8, 1);
         offset.setLength(distance);
         goal.current = { target: point, camera: point.clone().add(offset) };
@@ -154,14 +173,10 @@ function TerrainSurface({ blueprint, basins, depthRef }: { blueprint: boolean; b
   }, []);
   useFrame(() => {
     if (!mesh.current) return;
-    const material = mesh.current.material as THREE.MeshStandardMaterial;
-    const undergroundFade = blueprint ? 0 : depthRef.current;
-    material.opacity = 1 - undergroundFade * 0.97;
-    material.transparent = undergroundFade > 0.015;
-    material.depthWrite = undergroundFade < 0.08;
+    mesh.current.visible = blueprint || !subsurfaceInspection(depthRef);
   });
   return <mesh ref={mesh} geometry={geometry} receiveShadow>
-    <meshStandardMaterial map={blueprint ? blueprintTexture : groundTexture} color="#ffffff" roughness={0.96} side={THREE.DoubleSide} />
+    <meshStandardMaterial map={blueprint ? blueprintTexture : groundTexture} color="#ffffff" roughness={0.96} />
   </mesh>;
 }
 
@@ -184,13 +199,13 @@ function Road({ x, z, width, length, rotation = 0, primary = false, blueprint = 
   const shoulder = useMemo(() => roadGeometry(x, z, width + 0.48, length, rotation), [x, z, width, length, rotation]);
   const asphalt = useMemo(() => roadGeometry(x, z, width, length, rotation, 0.035), [x, z, width, length, rotation]);
   return <group position={[x, SURFACE_Y(x, z) + 0.055, z]} rotation-y={rotation}>
-    <mesh geometry={shoulder} receiveShadow><meshStandardMaterial color={blueprint ? "#1b3035" : "#77796e"} roughness={1} side={THREE.DoubleSide} /></mesh>
-    <mesh geometry={asphalt} receiveShadow><meshStandardMaterial color={blueprint ? "#20343a" : primary ? "#5d605a" : "#666960"} roughness={0.88} side={THREE.DoubleSide} /></mesh>
+    <mesh geometry={shoulder} receiveShadow><meshStandardMaterial color={blueprint ? "#1b3035" : "#77796e"} roughness={1} /></mesh>
+    <mesh geometry={asphalt} receiveShadow><meshStandardMaterial color={blueprint ? "#20343a" : primary ? "#5d605a" : "#666960"} roughness={0.88} /></mesh>
   </group>;
 }
 
 function Building({ x, z, w, d, h, variant, blueprint = false, facadeTexture }: { x: number; z: number; w: number; d: number; h: number; variant: number; blueprint?: boolean; facadeTexture: THREE.CanvasTexture }) {
-  const color = ["#a7a397", "#aaa99e", "#b2a99c", "#969e99", "#a39d91"][variant % 5]!;
+  const color = ["#8f9188", "#92948c", "#989890", "#878c88", "#908b84"][variant % 5]!;
   const footprint = useMemo(() => {
     const shape = new THREE.Shape();
     const inset = variant % 3 === 0 ? 0.34 : variant % 3 === 1 ? 0.14 : 0;
@@ -252,12 +267,12 @@ function UrbanEnvironment({ positions, blueprint, storagePositions, depthRef, fo
       { x: -26, z: 37 }, { x: 4, z: 39 }, { x: 32, z: 36 },
     ];
     const roadPaths = [
-      { points: [[-48, -29], [-35, -25], [-22, -28], [-8, -31], [8, -29], [25, -25], [43, -28], [51, -23]], width: 1.7, primary: true },
-      { points: [[-49, 28], [-35, 23], [-21, 27], [-4, 32], [13, 30], [29, 25], [45, 22], [52, 16]], width: 1.45, primary: true },
-      { points: [[-43, -24], [-39, -12], [-41, 1], [-37, 13], [-33, 23]], width: 0.86, primary: false },
-      { points: [[40, -24], [37, -12], [39, 1], [43, 12], [48, 20]], width: 0.82, primary: false },
-      { points: [[-48, -3], [-39, -1], [-33, 4], [-30, 13]], width: 0.62, primary: false },
-      { points: [[31, 13], [34, 4], [31, -5], [30, -17]], width: 0.62, primary: false },
+      { points: [[-48, -29], [-35, -25], [-22, -28], [-8, -31], [8, -29], [25, -25], [43, -28], [51, -23]], width: 1.15, primary: true },
+      { points: [[-49, 28], [-35, 23], [-21, 27], [-4, 32], [13, 30], [29, 25], [45, 22], [52, 16]], width: 1.0, primary: true },
+      { points: [[-43, -24], [-39, -12], [-41, 1], [-37, 13], [-33, 23]], width: 0.62, primary: false },
+      { points: [[40, -24], [37, -12], [39, 1], [43, 12], [48, 20]], width: 0.58, primary: false },
+      { points: [[-48, -3], [-39, -1], [-33, 4], [-30, 13]], width: 0.48, primary: false },
+      { points: [[31, 13], [34, 4], [31, -5], [30, -17]], width: 0.48, primary: false },
     ];
     roadPaths.forEach(({ points, width, primary }) => {
       for (let i = 0; i < points.length - 1; i++) {
@@ -282,17 +297,21 @@ function UrbanEnvironment({ positions, blueprint, storagePositions, depthRef, fo
     return { buildings, trees, roads };
   }, [positions, storagePositions]);
   useFrame(() => {
-    const visibility = (1 - depthRef.current * 0.98) * (focused ? 0.55 : 1);
-    environmentRef.current?.traverse((object) => {
+    if (!environmentRef.current) return;
+    if (subsurfaceInspection(depthRef)) {
+      environmentRef.current.visible = false;
+      return;
+    }
+    environmentRef.current.visible = true;
+    const visibility = (focused ? URBAN_FOCUSED_OPACITY : URBAN_BASE_OPACITY);
+    environmentRef.current.traverse((object) => {
       const mesh = object as THREE.Mesh;
       const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
       materials.forEach((material) => {
-        material.userData.networkBaseOpacity ??= material.opacity;
-        material.userData.networkBaseTransparent ??= material.transparent;
-        material.userData.networkBaseDepthWrite ??= material.depthWrite;
-        material.transparent = Boolean(material.userData.networkBaseTransparent) || visibility < 0.995;
+        material.userData.networkBaseOpacity ??= material.opacity ?? 1;
+        material.transparent = true;
         material.opacity = material.userData.networkBaseOpacity * visibility;
-        material.depthWrite = visibility < 0.82 ? false : material.userData.networkBaseDepthWrite;
+        material.depthWrite = visibility > 0.28;
       });
     });
   });
@@ -346,7 +365,7 @@ function Lake({ blueprint, selected, dimmed, seed, ports }: { blueprint: boolean
     <mesh geometry={geometries.outerBank} receiveShadow><meshStandardMaterial color={blueprint ? "#294047" : "#716b58"} side={THREE.DoubleSide} roughness={0.96} transparent={dimmed} opacity={dimmed ? 0.58 : 1} /></mesh>
     <mesh geometry={geometries.innerBank} receiveShadow><meshStandardMaterial color={blueprint ? "#31525a" : "#827d66"} side={THREE.DoubleSide} roughness={0.92} transparent={dimmed} opacity={dimmed ? 0.6 : 1} /></mesh>
     <mesh geometry={geometries.shallowShelf} receiveShadow><meshStandardMaterial color={blueprint ? "#185467" : "#879477"} side={THREE.DoubleSide} roughness={0.75} transparent={dimmed} opacity={dimmed ? 0.62 : 1} /></mesh>
-    <mesh ref={water} geometry={geometries.water} rotation-x={-Math.PI / 2}><meshPhysicalMaterial color={blueprint ? "#00d7ff" : "#079bc4"} emissive={blueprint ? "#058ba7" : "#08728a"} emissiveIntensity={blueprint ? 0.2 : 0.32} roughness={blueprint ? 0.2 : 0.24} metalness={0.08} clearcoat={0.92} clearcoatRoughness={0.12} toneMapped={false} side={THREE.DoubleSide} transparent={dimmed} opacity={dimmed ? 0.7 : 1} /></mesh>
+    <mesh ref={water} geometry={geometries.water} rotation-x={-Math.PI / 2}><meshPhysicalMaterial color={blueprint ? "#4eb8c9" : "#167fa3"} emissive={blueprint ? "#000000" : "#000000"} emissiveIntensity={0} roughness={0.28} metalness={0.04} clearcoat={0.75} clearcoatRoughness={0.18} transparent={dimmed} opacity={dimmed ? 0.7 : 1} /></mesh>
     <lineLoop geometry={geometries.outline} position={[0, -0.25, 0]}><lineBasicMaterial color={blueprint ? "#59dff5" : selected ? "#d2ad6f" : "#82917a"} transparent opacity={blueprint ? 0.9 : 0.46} /></lineLoop>
     {blueprint && <lineLoop geometry={geometries.outline} position={[0, -0.24, 0]} scale={0.91}><lineBasicMaterial color="#26c8e8" transparent opacity={0.58} /></lineLoop>}
     {!blueprint && <>
@@ -365,33 +384,34 @@ function Recharge({ blueprint, seed, dimmed }: { blueprint: boolean; seed: numbe
     for (let i = 0; i < 32; i++) {
       const a = (i / 32) * Math.PI * 2;
       const r = 1 + 0.08 * Math.sin(a * 3 + seed) + 0.035 * Math.cos(a * 5);
-      const p: [number, number] = [Math.cos(a) * 2.75 * r, Math.sin(a) * 2.1 * r];
+      const p: [number, number] = [Math.cos(a) * 3.35 * r, Math.sin(a) * 2.55 * r];
       if (!i) shape.moveTo(...p); else shape.lineTo(...p);
     }
     shape.closePath(); return new THREE.ShapeGeometry(shape, 1);
   }, [seed]);
   return <group>
     <mesh geometry={basin} rotation-x={-Math.PI / 2} position={[0, -0.06, 0]}><meshStandardMaterial color={blueprint ? "#18333a" : "#65715f"} side={THREE.DoubleSide} roughness={1} transparent={dimmed} opacity={dimmed ? 0.58 : 1} /></mesh>
-    {[2.12, 1.54].map((r, i) => <mesh key={r} rotation-x={-Math.PI / 2} position={[0, 0.025 + i * 0.018, 0]}><ringGeometry args={[r, r + (i ? 0.035 : 0.12), 56]} /><meshStandardMaterial color={blueprint ? "#347985" : i ? "#8c9274" : "#707665"} roughness={0.96} /></mesh>)}
-    <mesh position={[0, 0.065, 0]}><cylinderGeometry args={[0.34, 0.38, 0.16, 16]} /><meshStandardMaterial color={blueprint ? "#347f8b" : "#74786f"} metalness={0.16} roughness={0.78} /></mesh>
-    <mesh rotation-x={-Math.PI / 2} position={[0, 0.15, 0]}><circleGeometry args={[0.28, 12]} /><meshStandardMaterial color={blueprint ? "#19b6cf" : "#434b47"} roughness={0.78} /></mesh>
+    {[2.55, 1.85].map((r, i) => <mesh key={r} rotation-x={-Math.PI / 2} position={[0, 0.025 + i * 0.018, 0]}><ringGeometry args={[r, r + (i ? 0.04 : 0.14), 56]} /><meshStandardMaterial color={blueprint ? "#347985" : i ? "#8c9274" : "#707665"} roughness={0.96} /></mesh>)}
+    <mesh position={[0, 0.08, 0]}><cylinderGeometry args={[0.42, 0.48, 0.22, 18]} /><meshStandardMaterial color={blueprint ? "#347f8b" : "#74786f"} metalness={0.16} roughness={0.78} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} position={[0, 0.2, 0]}><circleGeometry args={[0.34, 14]} /><meshStandardMaterial color={blueprint ? "#4a8a94" : "#3a4542"} roughness={0.82} /></mesh>
+    <mesh rotation-x={-Math.PI / 2} position={[0, 0.205, 0]}><ringGeometry args={[0.36, 0.52, 24]} /><meshStandardMaterial color={blueprint ? "#5a9aa3" : "#6a7568"} roughness={0.9} /></mesh>
     {!blueprint && [[-2, -0.85], [1.75, -1.25], [-1.95, 0.95], [2.0, 0.75], [0.1, 1.75]].map(([x, z], i) => <Tree key={i} position={[x!, 0.02, z!]} scale={0.4 + (i % 2) * 0.12} variant={i + 1} />)}
   </group>;
 }
 
 function Junction({ blueprint, dimmed }: { blueprint: boolean; dimmed: boolean }) {
   return <group>
-    <mesh rotation-x={-Math.PI / 2} position={[0, 0.018, 0]}><circleGeometry args={[1.55, 40]} /><meshStandardMaterial color={blueprint ? "#1b3036" : "#7f8178"} roughness={0.94} transparent={dimmed} opacity={dimmed ? 0.5 : 1} /></mesh>
-    <mesh position={[0, -0.17, 0]}><cylinderGeometry args={[0.88, 0.98, 0.62, 28]} /><meshStandardMaterial color={blueprint ? "#24434a" : "#989b92"} metalness={0.16} roughness={0.82} transparent={dimmed} opacity={dimmed ? 0.5 : 1} /></mesh>
-    <mesh position={[0, 0.16, 0]}><cylinderGeometry args={[1.02, 1.02, 0.12, 28]} /><meshStandardMaterial color={blueprint ? "#356d77" : "#71766f"} metalness={0.34} roughness={0.7} transparent={dimmed} opacity={dimmed ? 0.5 : 1} /></mesh>
-    <mesh position={[0, 0.23, 0]}><cylinderGeometry args={[0.72, 0.72, 0.035, 28]} /><meshStandardMaterial color={blueprint ? "#15b4d1" : "#424a47"} metalness={0.22} roughness={0.78} /></mesh>
-    {Array.from({ length: 8 }, (_, i) => { const a = i * Math.PI / 4; return <mesh key={i} position={[Math.cos(a) * 0.88, 0.23, Math.sin(a) * 0.88]}><sphereGeometry args={[0.035, 8, 6]} /><meshStandardMaterial color={blueprint ? "#67c4cf" : "#b8b9ad"} metalness={0.25} /></mesh>; })}
+    <mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}><circleGeometry args={[2.05, 40]} /><meshStandardMaterial color={blueprint ? "#1b3036" : "#7f8178"} roughness={0.94} transparent={dimmed} opacity={dimmed ? 0.5 : 1} /></mesh>
+    <mesh position={[0, -0.22, 0]}><cylinderGeometry args={[1.15, 1.28, 0.78, 28]} /><meshStandardMaterial color={blueprint ? "#24434a" : "#989b92"} metalness={0.16} roughness={0.82} transparent={dimmed} opacity={dimmed ? 0.5 : 1} /></mesh>
+    <mesh position={[0, 0.2, 0]}><cylinderGeometry args={[1.32, 1.32, 0.16, 28]} /><meshStandardMaterial color={blueprint ? "#356d77" : "#71766f"} metalness={0.34} roughness={0.7} transparent={dimmed} opacity={dimmed ? 0.5 : 1} /></mesh>
+    <mesh position={[0, 0.29, 0]}><cylinderGeometry args={[0.92, 0.92, 0.05, 28]} /><meshStandardMaterial color={blueprint ? "#4a8a94" : "#424a47"} metalness={0.22} roughness={0.78} /></mesh>
+    {Array.from({ length: 8 }, (_, i) => { const a = i * Math.PI / 4; return <mesh key={i} position={[Math.cos(a) * 1.12, 0.29, Math.sin(a) * 1.12]}><sphereGeometry args={[0.045, 8, 6]} /><meshStandardMaterial color={blueprint ? "#67c4cf" : "#b8b9ad"} metalness={0.25} /></mesh>; })}
   </group>;
 }
 
 function SensorMarker({ status, label }: { status: SensorStatus; label: string }) {
   const tone = SENSOR_COLORS[status];
-  return <group position={[0.9, 1.48, 0.45]}><mesh position={[0, -0.32, 0]}><cylinderGeometry args={[0.055, 0.07, 0.7, 8]} /><meshStandardMaterial color="#64706e" metalness={0.7} /></mesh><mesh><sphereGeometry args={[0.17, 12, 10]} /><meshStandardMaterial color={tone} emissive={tone} emissiveIntensity={0.22} /></mesh><Html position={[0, 0.52, 0]} center distanceFactor={24} style={{ pointerEvents: "none" }}><div className="scene-sensor-label" style={{ color: tone }}>{label} · {status.toUpperCase()}</div></Html></group>;
+  return <group position={[1.15, 1.85, 0.55]}><mesh position={[0, -0.38, 0]}><cylinderGeometry args={[0.065, 0.085, 0.82, 8]} /><meshStandardMaterial color="#64706e" metalness={0.7} /></mesh><mesh><sphereGeometry args={[0.19, 12, 10]} /><meshStandardMaterial color={tone} emissive={tone} emissiveIntensity={0.08} /></mesh><Html position={[0, 0.52, 0]} center distanceFactor={22} style={{ pointerEvents: "none" }}><div className="scene-sensor-label" style={{ color: tone }}>{label} · {status.toUpperCase()}</div></Html></group>;
 }
 
 function Structure({ node, position, selected, dimmed, blueprint, onSelect, sensors, edges, positions, sample = false }: { node: NetworkNode; position: Vec3; selected: boolean; dimmed: boolean; blueprint: boolean; onSelect: (id: string) => void; sensors: CanonicalResponse["sensors"]; edges: CanonicalResponse["network"]["edges"]; positions: Layout; sample?: boolean }) {
@@ -409,7 +429,7 @@ function Structure({ node, position, selected, dimmed, blueprint, onSelect, sens
     const dx = other[0] - position[0], dz = other[2] - position[2], length = Math.hypot(dx, dz) || 1;
     return [{ x: dx / length, z: dz / length, direction: isIncoming ? "inlet" as const : "outlet" as const }];
   });
-  const selectionRadius = kind === "storage" ? 6.1 : kind === "recharge" ? 3.05 : kind === "junction" ? 1.45 : 2;
+  const selectionRadius = kind === "storage" ? 7.2 : kind === "recharge" ? 3.65 : kind === "junction" ? 2.15 : 2;
   return <group position={[position[0], SURFACE_Y(position[0], position[2]), position[2]]} scale={dimmed ? scale * 0.96 : scale} onClick={(event) => { event.stopPropagation(); onSelect(node.id); }} onPointerOver={() => setHover(true)} onPointerOut={() => setHover(false)}>
     {kind === "storage" ? <Lake blueprint={blueprint} selected={active} dimmed={dimmed} seed={seed} ports={ports} />
       : kind === "recharge" ? <Recharge blueprint={blueprint} seed={seed} dimmed={dimmed} />
@@ -428,9 +448,9 @@ function Conduit({ edge, positions, selected, connected, dimmed, blueprint, onSe
   const arrowPoint = curve.getPoint(0.72), arrowTangent = curve.getTangent(0.72);
   const arrowRotation = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), arrowTangent);
   return <group onClick={(event) => { event.stopPropagation(); onSelect(edge.id); }}>
-    <mesh><tubeGeometry args={[curve, 64, selected ? 0.25 : 0.2, 14, false]} /><meshStandardMaterial color={selected ? "#c6a96d" : connected ? "#8a9994" : blueprint ? "#326c7b" : "#66716d"} roughness={0.82} metalness={0.1} transparent opacity={opacity} /></mesh>
-    <mesh><tubeGeometry args={[curve, 64, 0.07, 10, false]} /><meshStandardMaterial color={blueprint ? "#12bade" : "#247a91"} emissive={blueprint ? "#087c98" : "#064052"} emissiveIntensity={blueprint ? 0.22 : 0.08} roughness={0.72} transparent opacity={dimmed ? 0.12 : 0.92} /></mesh>
-    <mesh position={arrowPoint} quaternion={arrowRotation}><coneGeometry args={[0.24, 0.56, 8]} /><meshStandardMaterial color={blueprint ? "#27c9e8" : "#51676a"} metalness={0.25} roughness={0.55} transparent opacity={dimmed ? 0.15 : 0.88} /></mesh>
+    <mesh><tubeGeometry args={[curve, 64, selected ? PIPE_RADIUS.selected : PIPE_RADIUS.base, 16, false]} /><meshStandardMaterial color={selected ? "#c6a96d" : connected ? "#8a9994" : blueprint ? "#4a7a84" : "#5f6a66"} roughness={0.86} metalness={0.08} transparent opacity={opacity} /></mesh>
+    <mesh><tubeGeometry args={[curve, 64, PIPE_RADIUS.flowHint, 10, false]} /><meshStandardMaterial color={blueprint ? "#6a9aa3" : "#3d5558"} roughness={0.78} transparent opacity={dimmed ? 0.1 : 0.55} /></mesh>
+    <mesh position={arrowPoint} quaternion={arrowRotation}><coneGeometry args={[0.28, 0.62, 8]} /><meshStandardMaterial color={blueprint ? "#6a9aa3" : "#51676a"} metalness={0.2} roughness={0.58} transparent opacity={dimmed ? 0.15 : 0.88} /></mesh>
     {simulationActive && <FlowDots curve={curve} dimmed={dimmed} />}
   </group>;
 }
@@ -484,18 +504,19 @@ export function EngineeringScene({ data, view, selected, onSelect, healthMode, s
   const depthRef = useRef(0);
   const positions = useMemo(() => layoutCanonicalNetwork(data.network.nodes, data.network.edges), [data.network.nodes, data.network.edges]);
   const focusPositions = useMemo(() => ({ ...positions, ...samplePositions(positions) }), [positions]);
-  return <div className="engineering-scene"><Canvas shadows dpr={[1, 1.7]} camera={{ position: [9.5, 22, 34], fov: 42 }} onPointerMissed={() => onSelect(null)} gl={{ antialias: true }}>
+  const frame = useMemo(() => networkFrame(positions), [positions]);
+  return <div className="engineering-scene"><Canvas shadows dpr={[1, 1.7]} camera={{ position: frame.position.toArray(), fov: 40 }} onPointerMissed={() => onSelect(null)} gl={{ antialias: true }}>
     <color attach="background" args={[view === "blueprint" ? "#142126" : "#acb8b1"]} />
-    <fog attach="fog" args={[view === "blueprint" ? "#142126" : "#acb8b1", 78, 150]} />
+    <fog attach="fog" args={[view === "blueprint" ? "#142126" : "#acb8b1", 52, 118]} />
     <hemisphereLight args={[view === "blueprint" ? "#7ebac4" : "#eff3e7", view === "blueprint" ? "#18272b" : "#625b4e", view === "blueprint" ? 0.8 : 1.15]} />
     <ambientLight intensity={view === "blueprint" ? 0.7 : 0.55} />
-    <directionalLight castShadow position={[24, 34, 15]} intensity={view === "blueprint" ? 0.75 : 2.0} shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-far={110} shadow-camera-left={-55} shadow-camera-right={55} shadow-camera-top={55} shadow-camera-bottom={-55} shadow-bias={-0.0002} />
-    <directionalLight position={[-24, 15, -20]} intensity={view === "blueprint" ? 0.45 : 0.72} color="#d9e4d6" />
-    <CameraHome controlsRef={controlsRef} />
+    <directionalLight castShadow position={[24, 34, 15]} intensity={view === "blueprint" ? 0.75 : 1.65} shadow-mapSize-width={2048} shadow-mapSize-height={2048} shadow-camera-far={110} shadow-camera-left={-55} shadow-camera-right={55} shadow-camera-top={55} shadow-camera-bottom={-55} shadow-bias={-0.0002} />
+    <directionalLight position={[-24, 15, -20]} intensity={view === "blueprint" ? 0.45 : 0.58} color="#d9e4d6" />
+    <CameraHome controlsRef={controlsRef} frame={frame} />
     <CameraDepth depthRef={depthRef} />
     <SceneAtmosphere blueprint={view === "blueprint"} depthRef={depthRef} />
     <SceneContents data={data} view={view} selected={selected} onSelect={onSelect} healthMode={healthMode} simulationActive={simulationActive} rainActive={rainActive} floodActive={floodActive} positions={positions} samplesVisible={samplesVisible || Boolean(selected && SAMPLE_IDS.includes(selected))} depthRef={depthRef} />
     <CameraFocus selected={selected} data={data} positions={focusPositions} controlsRef={controlsRef} />
-    <OrbitControls ref={controlsRef} makeDefault enableDamping dampingFactor={0.09} minDistance={4.5} maxDistance={96} minPolarAngle={0} maxPolarAngle={Math.PI} />
+    <OrbitControls ref={controlsRef} makeDefault enableDamping dampingFactor={0.09} minDistance={6} maxDistance={72} minPolarAngle={0.12} maxPolarAngle={ORBIT_MAX_POLAR} />
   </Canvas></div>;
 }

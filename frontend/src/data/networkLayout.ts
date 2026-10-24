@@ -77,10 +77,10 @@ export function layoutCanonicalNetwork(nodes: { id: string }[], edges: { from: s
     const ordered = new Array<string>(ids.length);
     storage.forEach((id, index) => { const slot = storage.length === 1 ? Math.floor((ids.length - 1) / 2) : Math.round(index * (ids.length - 1) / (storage.length - 1)); ordered[slot] = id; });
     for (let slot = 0; slot < ordered.length; slot++) if (!ordered[slot]) ordered[slot] = other[otherIndex++]!;
-    const spacing = Math.min(15, Math.max(10, 30 / Math.max(1, ordered.length - 1)));
+    const spacing = Math.min(17, Math.max(12, 34 / Math.max(1, ordered.length - 1)));
     ordered.forEach((id) => {
       const index = ordered.indexOf(id);
-      result[id] = [(index - (ordered.length - 1) / 2) * spacing, 0, (level - maxLevel / 2) * 13];
+      result[id] = [(index - (ordered.length - 1) / 2) * spacing, 0, (level - maxLevel / 2) * 15];
     });
   });
   return result;
