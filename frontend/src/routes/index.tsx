@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { lazy, Suspense, useState } from "react";
 import { ArrowRight, Waves } from "lucide-react";
 
-const AegisApp = lazy(() => import("@/components/aegis/AegisApp").then((m) => ({ default: m.AegisApp })));
+const EngineeringApp = lazy(() => import("@/components/aegis/EngineeringApp").then((m) => ({ default: m.EngineeringApp })));
 
 export const Route = createFileRoute("/")({
   ssr: false,
@@ -23,9 +23,7 @@ function Index() {
   const [stage, setStage] = useState<"entry" | "exiting" | "app">("entry");
   return (
     <>
-      {stage !== "entry" && (
-        <Suspense fallback={null}><AegisApp /></Suspense>
-      )}
+      {stage !== "entry" && <Suspense fallback={null}><EngineeringApp /></Suspense>}
       {stage !== "app" && (
         <div className={`fixed inset-0 z-50 flex items-center justify-center bg-background blueprint-grid ${stage === "exiting" ? "anim-exit" : ""}`}
           onAnimationEnd={(e) => { if (stage === "exiting" && e.target === e.currentTarget) setStage("app"); }}>
