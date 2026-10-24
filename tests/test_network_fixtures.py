@@ -10,14 +10,21 @@ class NetworkFixtureTests(unittest.TestCase):
         network = build_demo_network()
         self.assertEqual(
             {node.node_id for node in network.nodes},
-            {"J3", "L1", "R1", "L2"},
+            {"C1", "C2", "J3", "L1", "R1", "L2", "J4", "O1"},
         )
 
     def test_canonical_edge_ids_and_directions(self):
         network = build_demo_network()
         edges = {edge.edge_id: edge for edge in network.edges}
 
-        self.assertEqual(set(edges), {"E-J3-L1", "E-J3-R1", "E-J3-L2"})
+        self.assertEqual(
+            set(edges),
+            {
+                "E-J3-L1", "E-J3-R1", "E-J3-L2",
+                "E-C1-J3", "E-C2-J3",
+                "E-L1-J4", "E-L2-J4", "E-J4-O1",
+            },
+        )
         self.assertEqual((edges["E-J3-L1"].source_node_id,
                           edges["E-J3-L1"].target_node_id), ("J3", "L1"))
         self.assertEqual((edges["E-J3-R1"].source_node_id,
@@ -69,7 +76,8 @@ class NetworkFixtureTests(unittest.TestCase):
     def test_fixture_is_json_serializable(self):
         result = get_demo_network_dict()
         self.assertEqual(result["network_id"], "aegis_demo_catchment")
-        self.assertEqual(len(result["edges"]), 3)
+        self.assertEqual(len(result["nodes"]), 8)
+        self.assertEqual(len(result["edges"]), 8)
 
 
 if __name__ == "__main__":
