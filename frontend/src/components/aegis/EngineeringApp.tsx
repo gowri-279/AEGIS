@@ -31,6 +31,12 @@ const sampleNodes: NetworkNode[] = [
   { id: "V8", type: "storage", label: "V8 sample structure", sensor_ids: [], attributes: {} },
 ];
 
+function visualTargetId(targetId: string, data: CanonicalResponse) {
+  if (data.network.nodes.some((node) => node.id === targetId)) return targetId;
+  const sensor = data.sensors.find((item) => item.id === targetId);
+  return sensor?.node_id ?? targetId;
+}
+
 export function EngineeringApp() {
   const [data, setData] = useState<CanonicalResponse | null>(null);
   const [mode, setMode] = useState<Mode>("network");
@@ -106,7 +112,7 @@ export function EngineeringApp() {
         : selectedEdge ? <EdgeInspector edge={selectedEdge} />
         : mode === "health" ? <HealthInspector data={data} />
         : mode === "simulate" ? <SimulationInspector data={data} whatIf={whatIf} setWhatIf={setWhatIf} running={running} onRun={simulate} />
-        : mode === "review" ? <ReviewInspector data={data} onSelect={setSelected} />
+        : mode === "review" ? <ReviewInspector data={data} onSelect={(targetId) => setSelected(visualTargetId(targetId, data))} />
         : <NetworkInspector data={data} onSelect={setSelected} />}
     </aside>
 
