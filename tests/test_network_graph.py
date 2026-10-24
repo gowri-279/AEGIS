@@ -90,11 +90,11 @@ class NetworkGraphTests(unittest.TestCase):
 
     def test_network_summary(self):
         summary = get_network_summary(self.network)
-        self.assertEqual(summary["node_count"], 4)
-        self.assertEqual(summary["edge_count"], 3)
+        self.assertEqual(summary["node_count"], 8)
+        self.assertEqual(summary["edge_count"], 8)
         self.assertEqual(
             summary["node_type_counts"],
-            {"junction": 1, "recharge": 1, "storage": 2},
+            {"collection_inlet": 2, "junction": 2, "outlet": 1, "recharge": 1, "storage": 2},
         )
         self.assertTrue(summary["is_weakly_connected"])
 
