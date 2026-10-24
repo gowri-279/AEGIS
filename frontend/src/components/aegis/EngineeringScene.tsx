@@ -91,8 +91,21 @@ function buryDepth(type: string | undefined) {
   return 1.6;
 }
 
-function pipeCurve(edge: { from: string; to: string }, positions: Layout, typeById: Map<string, string>, basins: Vec3[]) {
+/** Presentation-only plan depth for blueprint conduit alignment (not survey elevation). */
+const BLUEPRINT_CONDUIT_DEPTH = 1.28;
+
+function pipeCurve(edge: { from: string; to: string }, positions: Layout, typeById: Map<string, string>, basins: Vec3[], blueprint = false) {
   const from = positions[edge.from], to = positions[edge.to];
+  if (blueprint) {
+    const y = -BLUEPRINT_CONDUIT_DEPTH;
+    const a = new THREE.Vector3(from[0], y, from[2]);
+    const b = new THREE.Vector3(to[0], y, to[2]);
+    const elbow = a.clone().lerp(b, 0.5);
+    const lateral = ((edge.from.length + edge.to.length) % 2 ? 1 : -1) * Math.min(0.65, a.distanceTo(b) * 0.035);
+    elbow.x += lateral;
+    elbow.y = y;
+    return new THREE.CatmullRomCurve3([a, elbow, b], false, "catmullrom", 0.08);
+  }
   const a = new THREE.Vector3(from[0], catchmentHeight(from[0], from[2], basins) - buryDepth(typeById.get(edge.from)), from[2]);
   const b = new THREE.Vector3(to[0], catchmentHeight(to[0], to[2], basins) - buryDepth(typeById.get(edge.to)), to[2]);
   const mid = a.clone().lerp(b, 0.5);
@@ -100,6 +113,80 @@ function pipeCurve(edge: { from: string; to: string }, positions: Layout, typeBy
   mid.x += bend;
   mid.y -= Math.min(0.55, a.distanceTo(b) * 0.02);
   return new THREE.CatmullRomCurve3([a, mid, b], false, "catmullrom", 0.22);
+}
+
+type ClearanceZone = { x: number; z: number; r: number };
+
+function pointInClearance(x: number, z: number, zones: ClearanceZone[]) {
+  return zones.some((zone) => Math.hypot(x - zone.x, z - zone.z) < zone.r);
+}
+
+function insideTerrainPatch(x: number, z: number, center: THREE.Vector3, size: number, margin = 1.35) {
+  const half = size / 2 - margin;
+  return Math.abs(x - center.x) <= half && Math.abs(z - center.z) <= half;
+}
+
+function buildNeighborhoodLayout(center: THREE.Vector3, size: number, zones: ClearanceZone[], basins: Vec3[]) {
+  const buildings: { x: number; z: number; w: number; d: number; h: number; variant: number }[] = [];
+  const trees: { p: Vec3; s: number; variant: number }[] = [];
+  const roads: { x: number; z: number; width: number; length: number; rotation: number; primary: boolean }[] = [];
+  const parks: { x: number; z: number; w: number; d: number; variant: number }[] = [];
+  const half = size / 2 - 1.35;
+  const minX = center.x - half, maxX = center.x + half;
+  const minZ = center.z - half, maxZ = center.z + half;
+  const cell = 3.4;
+  const cols = Math.max(5, Math.floor((maxX - minX) / cell));
+  const rows = Math.max(5, Math.floor((maxZ - minZ) / cell));
+
+  for (let col = 0; col <= cols; col++) {
+    const x = minX + col * cell;
+    if (col % 3 !== 0) continue;
+    if (pointInClearance(x, center.z, zones)) continue;
+    roads.push({ x, z: center.z, width: col % 6 === 0 ? 0.62 : 0.46, length: maxZ - minZ - 0.6, rotation: Math.PI / 2, primary: col % 6 === 0 });
+  }
+  for (let row = 0; row <= rows; row++) {
+    const z = minZ + row * cell;
+    if (row % 3 !== 0) continue;
+    if (pointInClearance(center.x, z, zones)) continue;
+    roads.push({ x: center.x, z, width: row % 6 === 0 ? 0.62 : 0.46, length: maxX - minX - 0.6, rotation: 0, primary: row % 6 === 0 });
+  }
+
+  for (let col = 0; col < cols; col++) for (let row = 0; row < rows; row++) {
+    const x = minX + col * cell + cell * 0.5;
+    const z = minZ + row * cell + cell * 0.5;
+    if (!insideTerrainPatch(x, z, center, size)) continue;
+    if (pointInClearance(x, z, zones)) continue;
+    const onStreet = col % 3 === 0 || row % 3 === 0 || (col + 1) % 3 === 0 || (row + 1) % 3 === 0;
+    if (onStreet) {
+      if ((col + row) % 5 === 0) trees.push({ p: [x, catchmentHeight(x, z, basins), z], s: 0.75 + (col % 3) * 0.08, variant: col + row });
+      continue;
+    }
+    const lot = (col * 17 + row * 31) % 100;
+    if (lot < 14) {
+      parks.push({ x, z, w: cell * 0.82, d: cell * 0.78, variant: col + row });
+      continue;
+    }
+    if (lot < 24) {
+      for (let t = 0; t < 3; t++) {
+        const tx = x + (t - 1) * 0.85, tz = z + ((col + t) % 2 ? 0.55 : -0.45);
+        if (!insideTerrainPatch(tx, tz, center, size) || pointInClearance(tx, tz, zones)) continue;
+        trees.push({ p: [tx, catchmentHeight(tx, tz, basins), tz], s: 0.7 + (t % 2) * 0.12, variant: col + row + t });
+      }
+      continue;
+    }
+    const variant = (col * 3 + row) % 5;
+    const w = 1.85 + (lot % 5) * 0.22;
+    const d = 1.7 + (lot % 4) * 0.2;
+    const h = 1.05 + (lot % 7) * 0.18 + (col % 4 === 0 ? 0.45 : 0);
+    buildings.push({ x, z, w, d, h, variant });
+    if (lot % 3 === 0) {
+      const tx = x + w * 0.35, tz = z - d * 0.38;
+      if (insideTerrainPatch(tx, tz, center, size) && !pointInClearance(tx, tz, zones)) {
+        trees.push({ p: [tx, catchmentHeight(tx, tz, basins), tz], s: 0.65, variant: variant + 2 });
+      }
+    }
+  }
+  return { buildings, trees, roads, parks };
 }
 
 function CameraDepth({ depthRef }: { depthRef: DepthRef }) {
@@ -288,6 +375,19 @@ function Building({ x, z, w, d, h, variant, blueprint = false, facadeTexture, ba
   </group>;
 }
 
+function ParkPatch({ x, z, w, d, variant, blueprint, basins }: { x: number; z: number; w: number; d: number; variant: number; blueprint: boolean; basins: Vec3[] }) {
+  const y = catchmentHeight(x, z, basins);
+  const treeSpots = useMemo(() => Array.from({ length: 5 }, (_, i) => {
+    const angle = (i / 5) * Math.PI * 2 + variant * 0.4;
+    const radius = (w * 0.22) + (i % 2) * 0.35;
+    return [Math.cos(angle) * radius, Math.sin(angle) * radius] as [number, number];
+  }), [variant, w]);
+  return <group position={[x, y + 0.02, z]}>
+    <mesh rotation-x={-Math.PI / 2} receiveShadow><planeGeometry args={[w, d]} /><meshStandardMaterial color={blueprint ? "#1a3338" : "#6d7a5c"} roughness={0.94} /></mesh>
+    {!blueprint && treeSpots.map(([ox, oz], i) => <Tree key={i} position={[ox, 0, oz]} scale={0.55 + (i % 2) * 0.1} variant={variant + i} blueprint={blueprint} />)}
+  </group>;
+}
+
 function Tree({ position, scale = 1, variant = 0, blueprint = false }: { position: Vec3; scale?: number; variant?: number; blueprint?: boolean }) {
   const greens = ["#5a6f52", "#647955", "#6b7658", "#566a58"];
   const trunk = 0.55 + (variant % 3) * 0.08;
@@ -303,7 +403,7 @@ function distanceToSegment(point: Vec3, a: [number, number], b: [number, number]
   return Math.hypot(point[0] - (a[0] + dx * t), point[2] - (a[1] + dz * t));
 }
 
-function UrbanEnvironment({ positions, blueprint, storagePositions, depthRef, focused, basins }: { positions: Layout; blueprint: boolean; storagePositions: Vec3[]; depthRef: DepthRef; focused: boolean; basins: Vec3[] }) {
+function UrbanEnvironment({ positions, blueprint, clearanceZones, depthRef, focused, basins }: { positions: Layout; blueprint: boolean; clearanceZones: ClearanceZone[]; depthRef: DepthRef; focused: boolean; basins: Vec3[] }) {
   const environmentRef = useRef<THREE.Group>(null);
   const facadeTexture = useMemo(() => {
     const canvas = document.createElement("canvas"); canvas.width = 320; canvas.height = 256;
@@ -318,44 +418,9 @@ function UrbanEnvironment({ positions, blueprint, storagePositions, depthRef, fo
     const texture = new THREE.CanvasTexture(canvas); texture.colorSpace = THREE.SRGBColorSpace; texture.anisotropy = 4; return texture;
   }, []);
   const city = useMemo(() => {
-    const buildings: { x: number; z: number; w: number; d: number; h: number; variant: number }[] = [];
-    const trees: { p: Vec3; s: number }[] = [];
-    const roads: { x: number; z: number; width: number; length: number; rotation: number; primary: boolean }[] = [];
-    const { center } = terrainExtent(positions);
-    const cx = center.x, cz = center.z;
-    const ringStreets = [
-      { x: cx, z: cz, length: 52, rotation: 0, width: 0.72, primary: true },
-      { x: cx, z: cz, length: 46, rotation: Math.PI / 2, width: 0.68, primary: true },
-      { x: cx - 14, z: cz, length: 22, rotation: Math.PI / 2, width: 0.5, primary: false },
-      { x: cx + 14, z: cz, length: 22, rotation: Math.PI / 2, width: 0.5, primary: false },
-      { x: cx, z: cz - 12, length: 28, rotation: 0, width: 0.5, primary: false },
-      { x: cx, z: cz + 12, length: 28, rotation: 0, width: 0.5, primary: false },
-    ];
-    ringStreets.forEach((road) => {
-      if (Object.values(positions).some((p) => Math.hypot(p[0] - road.x, p[2] - road.z) < 5.5)) return;
-      roads.push(road);
-    });
-    let seed = 8741; const random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296);
-    const blocks = [
-      [-22, -20], [-22, 18], [20, -18], [20, 16], [-32, 0], [32, 2], [0, -28], [4, 26],
-    ];
-    blocks.forEach(([bx, bz], blockIndex) => {
-      const bxw = bx + cx, bzw = bz + cz;
-      if (Object.values(positions).some((p) => Math.hypot(p[0] - bxw, p[2] - bzw) < 9)) return;
-      for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) {
-        const x = bxw + (col - 1) * 3.2 + (random() - 0.5) * 0.8;
-        const z = bzw + (row - 1) * 3.1 + (random() - 0.5) * 0.8;
-        if (Object.values(positions).some((p) => Math.hypot(x - p[0], z - p[2]) < 8.5)) continue;
-        if (storagePositions.some((p) => Math.hypot(x - p[0], z - p[2]) < 10)) continue;
-        if (roads.some((road) => distanceToSegment([x, 0, z], [road.x - Math.sin(road.rotation) * road.length / 2, road.z - Math.cos(road.rotation) * road.length / 2], [road.x + Math.sin(road.rotation) * road.length / 2, road.z + Math.cos(road.rotation) * road.length / 2]) < road.width / 2 + 1.6)) continue;
-        if ((row + col + blockIndex) % 4 === 0) { trees.push({ p: [x, catchmentHeight(x, z, basins), z], s: 0.85 + random() * 0.35 }); continue; }
-        const variant = Math.floor(random() * 5);
-        const h = 1.1 + random() * 1.6 + (Math.abs(bx) > 28 ? random() * 0.8 : 0);
-        buildings.push({ x, z, w: 2.2 + random() * 1.6, d: 2 + random() * 1.4, h, variant });
-      }
-    });
-    return { buildings, trees, roads };
-  }, [basins, positions, storagePositions]);
+    const { center, size } = terrainExtent(positions);
+    return buildNeighborhoodLayout(center, size, clearanceZones, basins);
+  }, [basins, clearanceZones, positions]);
   useFrame(() => {
     if (!environmentRef.current) return;
     if (subsurfaceInspection(depthRef)) {
@@ -377,9 +442,10 @@ function UrbanEnvironment({ positions, blueprint, storagePositions, depthRef, fo
   });
   return <group>
     <group ref={environmentRef}>
+      {city.parks.map((park, i) => <ParkPatch key={`park-${i}`} {...park} blueprint={blueprint} basins={basins} />)}
       {city.roads.map((road, i) => <Road key={`road-${i}`} {...road} blueprint={blueprint} basins={basins} />)}
       {city.buildings.map((building, i) => <Building key={i} {...building} blueprint={blueprint} facadeTexture={facadeTexture} basins={basins} />)}
-      {city.trees.map((tree, i) => <Tree key={`infill-${i}`} position={tree.p} scale={tree.s} variant={i} blueprint={blueprint} />)}
+      {city.trees.map((tree, i) => <Tree key={`infill-${i}`} position={tree.p} scale={tree.s} variant={tree.variant} blueprint={blueprint} />)}
     </group>
   </group>;
 }
@@ -501,7 +567,7 @@ function Structure({ node, position, selected, dimmed, blueprint, onSelect, sens
 }
 
 function Conduit({ edge, positions, selected, connected, dimmed, blueprint, onSelect, simulationActive, typeById, basins }: { edge: CanonicalResponse["network"]["edges"][number]; positions: Layout; selected: boolean; connected: boolean; dimmed: boolean; blueprint: boolean; onSelect: (id: string) => void; simulationActive: boolean; typeById: Map<string, string>; basins: Vec3[] }) {
-  const curve = useMemo(() => pipeCurve(edge, positions, typeById, basins), [basins, edge, positions, typeById]);
+  const curve = useMemo(() => pipeCurve(edge, positions, typeById, basins, blueprint), [basins, blueprint, edge, positions, typeById]);
   const from = positions[edge.from]!, to = positions[edge.to]!;
   const opacity = dimmed ? 0.18 : 0.9;
   const arrowPoint = curve.getPoint(0.72), arrowTangent = curve.getTangent(0.72);
@@ -539,10 +605,24 @@ function SceneContents({ data, view, selected, onSelect, healthMode, simulationA
   const typeById = useMemo(() => new Map(data.network.nodes.map((node) => [node.id, node.type])), [data.network.nodes]);
   const sampleNodes: NetworkNode[] = sampleIds.map((id, i) => ({ id, type: i === 1 ? "recharge" : "storage", label: `${id} visualization sample`, sensor_ids: [], attributes: {} }));
   const allPositions = useMemo(() => ({ ...positions, ...samplePositions(positions, sampleIds) }), [positions, sampleIds.join("|")]);
+  const clearanceZones = useMemo<ClearanceZone[]>(() => {
+    const zones: ClearanceZone[] = [];
+    data.network.nodes.forEach((node) => {
+      const point = allPositions[node.id];
+      if (!point) return;
+      const r = node.type === "storage" ? 11.5 : node.type === "junction" ? 7.8 : node.type === "recharge" ? 8.8 : 7;
+      zones.push({ x: point[0], z: point[2], r });
+    });
+    sampleIds.forEach((id) => {
+      const point = allPositions[id];
+      if (point) zones.push({ x: point[0], z: point[2], r: 8.5 });
+    });
+    return zones;
+  }, [allPositions, data.network.nodes, sampleIds]);
   return <group>
     <TerrainSurface blueprint={blueprint} basins={basins} depthRef={depthRef} layout={positions} />
     <SubsurfaceCutaway layout={positions} depthRef={depthRef} blueprint={blueprint} />
-    <UrbanEnvironment positions={positions} blueprint={blueprint} storagePositions={basins} depthRef={depthRef} focused={Boolean(selected)} basins={basins} />
+    <UrbanEnvironment positions={positions} blueprint={blueprint} clearanceZones={clearanceZones} depthRef={depthRef} focused={Boolean(selected)} basins={basins} />
     {data.network.edges.map((edge) => {
       const isConnected = connectedIds.has(edge.id);
       const dimmed = emphasis && !isConnected && selected !== edge.id && !activeRoute.has(edge.id);
