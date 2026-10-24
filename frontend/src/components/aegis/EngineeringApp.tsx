@@ -3,7 +3,6 @@ import { Activity, Bot, CloudRain, Droplets, Gauge, Map, Play, ShieldAlert, Squa
 import { getCanonicalResponse, runScenario } from "@/services/api";
 import type { FixtureId } from "@/data/mockCanonicalResponse";
 import type { CanonicalResponse, NetworkEdge, NetworkNode } from "@/data/types";
-import { TwinScene, type EngineeringView } from "./twin/TwinScene";
 import "./engineering.css";
 import { cn } from "@/lib/utils";
 import { NetworkInventory } from "./NetworkInventory";
@@ -37,12 +36,10 @@ function visualTargetId(targetId: string, data: CanonicalResponse) {
 export function EngineeringApp() {
   const [data, setData] = useState<CanonicalResponse | null>(null);
   const [mode, setMode] = useState<Mode>("network");
-  const [view, setView] = useState<EngineeringView>("terrain");
   const { selectedId: selected, select: setSelected } = useNetworkSelection();
   const [whatIf, setWhatIf] = useState<WhatIf>("standard");
   const [running, setRunning] = useState(false);
   const [bobOpen, setBobOpen] = useState(true);
-  const [samplesVisible, setSamplesVisible] = useState(false);
 
   useEffect(() => {
     getCanonicalResponse("standard").then(setData);
@@ -70,22 +67,13 @@ export function EngineeringApp() {
     return <div className="engineering-loading"><span>AEGIS</span><small>LOADING SYNTHETIC CATCHMENT MODEL</small></div>;
   }
 
-  const rainActive = mode === "simulate" && (whatIf === "heavy-rain" || whatIf === "flooding");
-  const floodActive = mode === "simulate" && whatIf === "flooding";
-  const simulationActive = mode === "simulate" && whatIf !== "sensor-failure";
-
   return <main className="engineering-app">
-    <TwinScene
-      data={data}
-      view={view}
-      selected={selected}
-      onSelect={setSelected}
-      samplesVisible={mode === "network" && samplesVisible}
-      healthMode={mode === "health" || mode === "review"}
-      simulationActive={simulationActive}
-      rainActive={rainActive}
-      floodActive={floodActive}
-    />
+    <div className="aegis-visualization">
+  <div className="aegis-visualization-placeholder">
+    <span>AEGIS DIGITAL TWIN</span>
+    <small>NETWORK VISUALIZATION LAYER</small>
+  </div>
+</div>
 
     <header className="engineering-header">
       <button className="engineering-brand" onClick={() => { setMode("network"); setSelected(null); setSamplesVisible(false); }}>
