@@ -1,7 +1,7 @@
 /** Restrained engineering-twin palette (presentation only). */
 
 export const twinPalette = {
-  terrain: { terrain: "#a8a399", blueprint: "#1e2a30" },
+  terrain: { terrain: "#7a7d74", blueprint: "#1e2a30" },
   urban: { fill: "#8a8780", blueprint: "#24363a" },
   attention: { amber: "#c6a96d", amberSoft: "#d3b477" },
   critical: { red: "#c86254", redSoft: "#bd5f51" },

@@ -1,7 +1,13 @@
 import { useMemo, useRef } from "react";
 import * as THREE from "three";
+import {
+  bindCatchmentModel,
+  buildStorageDepressions,
+  createCatchmentModel,
+} from "./catchment/catchmentModel";
 import { CatchmentTerrain } from "./CatchmentTerrain";
-import { collectStorageBasins, NetworkLayer } from "./NetworkLayer";
+import { NetworkLayer } from "./NetworkLayer";
+import { storageVariantByNodeId } from "./nodes/NetworkNodeVisual";
 import { NetworkPresentationLighting } from "./NetworkPresentationLighting";
 import { SceneController } from "./SceneController";
 import { SceneShell } from "./SceneShell";
@@ -31,16 +37,22 @@ export function TwinScene({
     samplesVisible || Boolean(selected && (SAMPLE_NODE_IDS as readonly string[]).includes(selected));
   const { positions, allPositions, typeById, sampleIds } = useSceneLayout(data, showSamples);
   const blueprint = view === "blueprint";
-  const storageBasins = collectStorageBasins(data, allPositions);
+  const storageVariants = useMemo(() => storageVariantByNodeId(data.network.nodes), [data.network.nodes]);
+
+  const catchmentModel = useMemo(() => {
+    const frame = networkFrame(positions);
+    const depressions = buildStorageDepressions(data.network.nodes, positions, storageVariants);
+    const model = createCatchmentModel(frame.bounds, depressions);
+    bindCatchmentModel(model);
+    return model;
+  }, [data.network.nodes, positions, storageVariants]);
+
   const frame = useMemo(() => networkFrame(positions), [positions]);
   const lightCenter = useMemo(() => new THREE.Vector3(...frame.bounds.center), [frame.bounds.center]);
+  const urbanSubdue = Boolean(selected);
 
   return (
-    <SceneShell
-      view={view}
-      initialCamera={frame.camera}
-      onPointerMissed={() => onSelect(null)}
-    >
+    <SceneShell view={view} initialCamera={frame.camera} onPointerMissed={() => onSelect(null)}>
       <NetworkPresentationLighting center={lightCenter} span={frame.bounds.span} blueprint={blueprint} />
       <SceneController
         view={view}
@@ -50,8 +62,14 @@ export function TwinScene({
         controlsRef={controlsRef}
         depthRef={depthRef}
       />
-      <CatchmentTerrain blueprint={blueprint} storageBasins={storageBasins} />
-      <UrbanContext positions={positions} blueprint={blueprint} />
+      <CatchmentTerrain blueprint={blueprint} model={catchmentModel} />
+      <UrbanContext
+        positions={positions}
+        nodes={data.network.nodes}
+        model={catchmentModel}
+        blueprint={blueprint}
+        subdue={urbanSubdue}
+      />
       <NetworkLayer
         data={data}
         blueprint={blueprint}

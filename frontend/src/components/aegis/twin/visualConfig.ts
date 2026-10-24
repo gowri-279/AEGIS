@@ -117,7 +117,73 @@ export const NETWORK = {
     networkRenderOrder: 2,
     conduitRenderOrder: 1,
     terrainRenderOrder: 0,
+    urbanRenderOrder: 0.35,
+    vegetationRenderOrder: 0.42,
   },
+} as const;
+
+/** Catchment terrain presentation (not survey elevation). */
+export const CATCHMENT = {
+  extentScale: 1.85,
+  minHalfSize: 28,
+  maxHalfSize: 46,
+  meshSteps: 96,
+  drainageAxis: [0.62, 0.78] as const,
+  nodeClearanceMin: 7.5,
+  nodeClearanceScale: 0.38,
+  height: {
+    rippleScale: 1,
+    drainageTilt: 0.14,
+    acrossFrequency: 0.09,
+    acrossAmplitude: 0.05,
+    edgeLiftStart: 0.72,
+    edgeLiftEnd: 1.02,
+    edgeLift: 0.22,
+    basinRimInner: 0.92,
+    basinRimOuter: 1.18,
+    basinRimHeight: 0.16,
+    basinFloorStart: 0.55,
+    basinFloorEnd: 1.05,
+    basinDepth: 0.82,
+  },
+  storageTerrain: {
+    variants: [
+      { depressionRadiusX: 5.4, depressionRadiusZ: 4.1 },
+      { depressionRadiusX: 6.4, depressionRadiusZ: 4.8 },
+    ],
+  },
+} as const;
+
+/** Urban catchment presentation layout. */
+export const URBAN = {
+  gridRotation: -0.18,
+  blockCountX: 4,
+  blockCountZ: 4,
+  streetWidthPrimary: 1.65,
+  streetWidthSecondary: 0.92,
+  sidewalkWidth: 0.38,
+  buildingDensity: 0.72,
+  maxBuildings: 48,
+  maxTrees: 36,
+  building: {
+    minWidth: 2.4,
+    maxWidth: 4.6,
+    minDepth: 2.2,
+    maxDepth: 4.2,
+    minHeight: 0.85,
+    maxHeight: 2.35,
+  },
+  clearanceFromNode: 1.15,
+  clearanceFromStorage: 1.35,
+  opacityWhenFocused: 0.52,
+} as const;
+
+export const VEGETATION = {
+  minScale: 0.62,
+  maxScale: 1.05,
+  trunkHeight: 1.35,
+  canopyPrimary: 0.82,
+  canopySecondary: 0.58,
 } as const;
 
 /** @deprecated greybox alias — prefer NETWORK */

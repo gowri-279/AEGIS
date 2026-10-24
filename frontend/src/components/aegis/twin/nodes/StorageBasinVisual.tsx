@@ -31,6 +31,10 @@ export function StorageBasinVisual({ blueprint, selected, dimmed, seed, variantI
 
   return (
     <group>
+      <mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}>
+        <ringGeometry args={[rx * 0.96, rx * 1.14, 56]} scale={[1, rz / rx, 1]} />
+        <meshStandardMaterial color={blueprint ? palette.outerBank : "#8a8578"} roughness={0.94} transparent opacity={0.72} />
+      </mesh>
       <mesh geometry={geometries.outerBank} receiveShadow>
         <meshStandardMaterial color={palette.outerBank} side={THREE.DoubleSide} roughness={0.96} transparent={dimmed} opacity={dimmed ? 0.58 : 1} />
       </mesh>

@@ -1,10 +1,12 @@
 import type { Vec3 } from "@/data/networkLayout";
-import { GREYBOX, SAMPLE_NODE_IDS } from "./visualConfig";
+import { SAMPLE_NODE_IDS } from "./visualConfig";
 import type { NodeLayout } from "./types";
 
-/** Synthetic visualization height — not elevation data. */
+import { groundSurfaceY } from "./catchment/catchmentModel";
+
+/** Synthetic visualization height — not elevation data. Follows active catchment when bound. */
 export function surfaceY(x: number, z: number) {
-  return 0.12 * Math.sin(x * 0.17) + 0.16 * Math.cos(z * 0.14) + 0.08 * Math.sin((x + z) * 0.11);
+  return groundSurfaceY(x, z);
 }
 
 export function samplePositions(canonical: NodeLayout, ids = SAMPLE_NODE_IDS.filter((id) => !(id in canonical))) {
