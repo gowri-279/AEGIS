@@ -56,6 +56,13 @@ class NetworkFixtureTests(unittest.TestCase):
             self.assertIsNone(node.storage_capacity_m3)
             self.assertIsNone(node.initial_occupied_storage_m3)
 
+    def test_network_version_is_exposed(self):
+        network = build_demo_network()
+        network_dict = get_demo_network_dict()
+
+        self.assertEqual(network.network_version, "1.0")
+        self.assertEqual(network_dict["network_version"], "1.0")
+
     def test_fixture_passes_structural_validation(self):
         self.assertEqual(validate_network(build_demo_network()), [])
 
