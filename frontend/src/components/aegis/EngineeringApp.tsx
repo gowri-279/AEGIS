@@ -3,7 +3,7 @@ import { Activity, Bot, CloudRain, Droplets, Gauge, Map, Play, ShieldAlert, Squa
 import { getCanonicalResponse, runScenario } from "@/services/api";
 import type { FixtureId } from "@/data/mockCanonicalResponse";
 import type { CanonicalResponse, NetworkEdge, NetworkNode } from "@/data/types";
-import { EngineeringScene, type EngineeringView } from "./EngineeringScene";
+import { TwinScene, type EngineeringView } from "./twin/TwinScene";
 import "./engineering.css";
 import { cn } from "@/lib/utils";
 import { NetworkInventory } from "./NetworkInventory";
@@ -75,7 +75,7 @@ export function EngineeringApp() {
   const simulationActive = mode === "simulate" && whatIf !== "sensor-failure";
 
   return <main className="engineering-app">
-    <EngineeringScene
+    <TwinScene
       data={data}
       view={view}
       selected={selected}
