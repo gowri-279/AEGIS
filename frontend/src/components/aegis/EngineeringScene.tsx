@@ -7,245 +7,90 @@ import type { CanonicalResponse, NetworkNode, SensorStatus } from "@/data/types"
 export type EngineeringView = "terrain" | "blueprint" | "underground";
 type Vec3 = [number, number, number];
 type VisualType = "junction" | "storage" | "recharge" | "sample";
-
 type VisualNode = { p: Vec3; type: VisualType; scale?: number };
 
+type ControlsRef = { current: { target: THREE.Vector3; update: () => void } | null };
+
 const visualNodes: Record<string, VisualNode> = {
-  J3: { p: [0, 0.35, 0], type: "junction", scale: 1.1 },
-  L1: { p: [-7, 0.2, -5], type: "storage", scale: 1 },
-  R1: { p: [7, 0.15, -5], type: "recharge", scale: 1 },
-  L2: { p: [2.5, 0.2, 8], type: "storage", scale: 1.25 },
-  V5: { p: [-12, 0.2, 6], type: "storage", scale: 0.85 },
-  V6: { p: [12, 0.2, 7], type: "recharge", scale: 0.9 },
-  V7: { p: [-10, 0.2, -11], type: "junction", scale: 0.85 },
-  V8: { p: [11, 0.2, -11], type: "storage", scale: 0.9 },
+  J3: { p: [0, 0.35, 0], type: "junction", scale: 1.1 }, L1: { p: [-7, 0.2, -5], type: "storage" }, R1: { p: [7, 0.15, -5], type: "recharge" }, L2: { p: [2.5, 0.2, 8], type: "storage", scale: 1.25 },
+  V5: { p: [-12, 0.2, 6], type: "storage", scale: 0.85 }, V6: { p: [12, 0.2, 7], type: "recharge", scale: 0.9 }, V7: { p: [-10, 0.2, -11], type: "junction", scale: 0.85 }, V8: { p: [11, 0.2, -11], type: "storage", scale: 0.9 },
 };
-
 const visualEdges: { id: string; a: string; b: string; canonical?: boolean }[] = [
-  { id: "E-J3-L1", a: "J3", b: "L1", canonical: true },
-  { id: "E-J3-R1", a: "J3", b: "R1", canonical: true },
-  { id: "E-J3-L2", a: "J3", b: "L2", canonical: true },
-  { id: "E-L1-V5", a: "L1", b: "V5" },
-  { id: "E-V5-V7", a: "V5", b: "V7" },
-  { id: "E-R1-V6", a: "R1", b: "V6" },
-  { id: "E-V6-V8", a: "V6", b: "V8" },
-  { id: "E-V7-L2", a: "V7", b: "L2" },
-  { id: "E-V8-L2", a: "V8", b: "L2" },
+  { id: "E-J3-L1", a: "J3", b: "L1", canonical: true }, { id: "E-J3-R1", a: "J3", b: "R1", canonical: true }, { id: "E-J3-L2", a: "J3", b: "L2", canonical: true },
+  { id: "E-L1-V5", a: "L1", b: "V5" }, { id: "E-V5-V7", a: "V5", b: "V7" }, { id: "E-R1-V6", a: "R1", b: "V6" }, { id: "E-V6-V8", a: "V6", b: "V8" }, { id: "E-V7-L2", a: "V7", b: "L2" }, { id: "E-V8-L2", a: "V8", b: "L2" },
 ];
-
-const statusTone: Record<SensorStatus, string> = {
-  fresh: "#8fb89a",
-  degraded: "#d0a75e",
-  stale: "#788487",
-  missing: "#788487",
-  invalid: "#c96e5b",
-  conflicting: "#d0a75e",
-};
+const statusTone: Record<SensorStatus, string> = { fresh: "#8fb89a", degraded: "#d0a75e", stale: "#788487", missing: "#788487", invalid: "#c96e5b", conflicting: "#d0a75e" };
 
 function curveFor(edge: { a: string; b: string }, underground = false) {
-  const a = new THREE.Vector3(...visualNodes[edge.a].p);
-  const b = new THREE.Vector3(...visualNodes[edge.b].p);
-  if (underground) {
-    a.y -= 1.35;
-    b.y -= 1.35;
-  }
-  const mid = a.clone().lerp(b, 0.5);
-  mid.y += 0.25;
+  const a = new THREE.Vector3(...visualNodes[edge.a].p), b = new THREE.Vector3(...visualNodes[edge.b].p);
+  if (underground) { a.y -= 1.35; b.y -= 1.35; }
+  const mid = a.clone().lerp(b, 0.5); mid.y += 0.25;
   return new THREE.CatmullRomCurve3([a, mid, b], false, "catmullrom", 0.18);
 }
 
 function FlowParticles({ curve, highlighted, speed = 1 }: { curve: THREE.CatmullRomCurve3; highlighted: boolean; speed?: number }) {
-  const count = highlighted ? 26 : 15;
-  const group = useRef<THREE.Group>(null);
-  const offsets = useMemo(() => Array.from({ length: count }, (_, i) => i / count), [count]);
-  useFrame(({ clock }) => {
-    if (!group.current) return;
-    group.current.children.forEach((child, i) => {
-      const t = (offsets[i] + clock.elapsedTime * 0.055 * speed) % 1;
-      const point = curve.getPoint(t);
-      child.position.copy(point);
-    });
-  });
-  return <group ref={group}>
-    {offsets.map((_, i) => <mesh key={i} scale={highlighted ? 0.085 : 0.055}>
-      <sphereGeometry args={[1, 5, 5]} />
-      <meshBasicMaterial color={highlighted ? "#d9f0fa" : "#66aeca"} />
-    </mesh>)}
-  </group>;
+  const count = highlighted ? 26 : 15, group = useRef<THREE.Group>(null), offsets = useMemo(() => Array.from({ length: count }, (_, i) => i / count), [count]);
+  useFrame(({ clock }) => { if (!group.current) return; group.current.children.forEach((child, i) => child.position.copy(curve.getPoint((offsets[i] + clock.elapsedTime * 0.055 * speed) % 1))); });
+  return <group ref={group}>{offsets.map((_, i) => <mesh key={i} scale={highlighted ? 0.085 : 0.055}><sphereGeometry args={[1, 5, 5]} /><meshBasicMaterial color={highlighted ? "#d9f0fa" : "#66aeca"} /></mesh>)}</group>;
 }
 
 function Pipe({ edge, selected, highlighted, underground, onSelect, simulationActive }: { edge: typeof visualEdges[number]; selected: boolean; highlighted: boolean; underground: boolean; onSelect: (id: string) => void; simulationActive: boolean }) {
   const curve = useMemo(() => curveFor(edge, underground), [edge, underground]);
   const outerColor = selected ? "#e7ebe7" : highlighted ? "#d0a75e" : edge.canonical ? "#687477" : "#4d595b";
-  const outerOpacity = underground ? 0.46 : edge.canonical ? 0.82 : 0.45;
-  return <group onClick={(e) => { e.stopPropagation(); onSelect(edge.id); }}>
-    <mesh>
-      <tubeGeometry args={[curve, 56, edge.canonical ? 0.29 : 0.19, 10, false]} />
-      <meshStandardMaterial color={outerColor} metalness={0.72} roughness={0.42} transparent opacity={outerOpacity} />
-    </mesh>
-    {edge.canonical && <>
-      <mesh>
-        <tubeGeometry args={[curve, 56, highlighted ? 0.13 : 0.105, 8, false]} />
-        <meshStandardMaterial color={highlighted ? "#2b83a8" : "#164968"} emissive={highlighted ? "#2b83a8" : "#0b2738"} emissiveIntensity={highlighted ? 0.8 : 0.18} transparent opacity={0.9} />
-      </mesh>
-      <FlowParticles curve={curve} highlighted={highlighted} speed={simulationActive ? 1.7 : 1} />
-    </>}
-  </group>;
+  return <group onClick={(e) => { e.stopPropagation(); onSelect(edge.id); }}><mesh><tubeGeometry args={[curve, 56, edge.canonical ? 0.29 : 0.19, 10, false]} /><meshStandardMaterial color={outerColor} metalness={0.72} roughness={0.42} transparent opacity={underground ? 0.46 : edge.canonical ? 0.82 : 0.45} /></mesh>{edge.canonical && <><mesh><tubeGeometry args={[curve, 56, highlighted ? 0.13 : 0.105, 8, false]} /><meshStandardMaterial color={highlighted ? "#2b83a8" : "#164968"} emissive={highlighted ? "#2b83a8" : "#0b2738"} emissiveIntensity={highlighted ? 0.8 : 0.18} transparent opacity={0.9} /></mesh><FlowParticles curve={curve} highlighted={highlighted} speed={simulationActive ? 1.7 : 1} /></>}</group>;
 }
 
 function SensorMarker({ status, label }: { status: SensorStatus; label: string }) {
   const tone = statusTone[status];
-  return <Html position={[0.95, 2.25, 0.35]} center distanceFactor={23} style={{ pointerEvents: "none" }}>
-    <div className="scene-sensor"><span className="scene-sensor-dot" style={{ background: tone }} /></div>
-    <div className="scene-sensor-label" style={{ color: tone }}>{label} · {status.toUpperCase()}</div>
-  </Html>;
+  return <Html position={[0.95, 2.25, 0.35]} center distanceFactor={23} style={{ pointerEvents: "none" }}><div className="scene-sensor"><span className="scene-sensor-dot" style={{ background: tone }} /></div><div className="scene-sensor-label" style={{ color: tone }}>{label} · {status.toUpperCase()}</div></Html>;
 }
 
 function Structure({ node, selected, health, onSelect, underground, sensorStatus }: { node: NetworkNode; selected: boolean; health: boolean; onSelect: (id: string) => void; underground: boolean; sensorStatus?: SensorStatus }) {
-  const visual = visualNodes[node.id];
-  if (!visual) return null;
-  const [hover, setHover] = useState(false);
-  const active = selected || hover;
-  const healthTone = sensorStatus ? statusTone[sensorStatus] : "#d0a75e";
-  const ringTone = health && node.id === "J3" ? healthTone : "#b2bab8";
-  const opacity = underground ? 0.46 : 0.88;
+  const visual = visualNodes[node.id]; if (!visual) return null;
+  const [hover, setHover] = useState(false), active = selected || hover, healthTone = sensorStatus ? statusTone[sensorStatus] : "#d0a75e", ringTone = health && node.id === "J3" ? healthTone : "#b2bab8", opacity = underground ? 0.46 : 0.88;
   return <group position={visual.p} scale={visual.scale ?? 1} onClick={(e) => { e.stopPropagation(); onSelect(node.id); }} onPointerOver={() => setHover(true)} onPointerOut={() => setHover(false)}>
-    {visual.type === "junction" && <>
-      <mesh><cylinderGeometry args={[1, 1, 1.7, 20]} /><meshStandardMaterial color="#667174" metalness={0.75} roughness={0.38} transparent opacity={opacity} /></mesh>
-      <mesh position={[0, 0.91, 0]}><cylinderGeometry args={[1.08, 1.08, 0.12, 20]} /><meshStandardMaterial color="#384346" metalness={0.86} roughness={0.28} /></mesh>
-      <mesh position={[0, -0.15, 0]}><cylinderGeometry args={[0.78, 0.78, 0.72, 20]} /><meshStandardMaterial color="#1d6486" transparent opacity={0.88} /></mesh>
-    </>}
-    {visual.type === "storage" && <>
-      <mesh><boxGeometry args={[3, 1.35, 2.2]} /><meshStandardMaterial color="#737b7b" metalness={0.55} roughness={0.5} transparent opacity={opacity} /></mesh>
-      <mesh position={[0, -0.28, 0]}><boxGeometry args={[2.78, 0.58, 1.98]} /><meshStandardMaterial color="#1d668c" transparent opacity={0.9} /></mesh>
-      <mesh position={[0, 0.66, 0]}><boxGeometry args={[3.1, 0.08, 2.3]} /><meshStandardMaterial color="#404849" metalness={0.8} /></mesh>
-    </>}
-    {visual.type === "recharge" && <>
-      <mesh><cylinderGeometry args={[1.25, 1.05, 1.1, 8]} /><meshStandardMaterial color="#747d7d" metalness={0.5} roughness={0.55} transparent opacity={opacity} /></mesh>
-      {[0.28, 0, -0.28].map((y) => <mesh key={y} position={[0, y, 0]} rotation-x={Math.PI / 2}><torusGeometry args={[0.72 - Math.abs(y), 0.035, 8, 28]} /><meshStandardMaterial color="#367ca1" /></mesh>)}
-    </>}
+    {visual.type === "junction" && <><mesh><cylinderGeometry args={[1, 1, 1.7, 20]} /><meshStandardMaterial color="#667174" metalness={0.75} roughness={0.38} transparent opacity={opacity} /></mesh><mesh position={[0, 0.91, 0]}><cylinderGeometry args={[1.08, 1.08, 0.12, 20]} /><meshStandardMaterial color="#384346" metalness={0.86} roughness={0.28} /></mesh><mesh position={[0, -0.15, 0]}><cylinderGeometry args={[0.78, 0.78, 0.72, 20]} /><meshStandardMaterial color="#1d6486" transparent opacity={0.88} /></mesh></>}
+    {visual.type === "storage" && <><mesh><boxGeometry args={[3, 1.35, 2.2]} /><meshStandardMaterial color="#737b7b" metalness={0.55} roughness={0.5} transparent opacity={opacity} /></mesh><mesh position={[0, -0.28, 0]}><boxGeometry args={[2.78, 0.58, 1.98]} /><meshStandardMaterial color="#1d668c" transparent opacity={0.9} /></mesh><mesh position={[0, 0.66, 0]}><boxGeometry args={[3.1, 0.08, 2.3]} /><meshStandardMaterial color="#404849" metalness={0.8} /></mesh></>}
+    {visual.type === "recharge" && <><mesh><cylinderGeometry args={[1.25, 1.05, 1.1, 8]} /><meshStandardMaterial color="#747d7d" metalness={0.5} roughness={0.55} transparent opacity={opacity} /></mesh>{[0.28, 0, -0.28].map((y) => <mesh key={y} position={[0, y, 0]} rotation-x={Math.PI / 2}><torusGeometry args={[0.72 - Math.abs(y), 0.035, 8, 28]} /><meshStandardMaterial color="#367ca1" /></mesh>)}</>}
     {active && <mesh position={[0, -0.86, 0]} rotation-x={-Math.PI / 2}><ringGeometry args={[1.43, 1.56, 48]} /><meshBasicMaterial color={health ? ringTone : "#dce5e6"} toneMapped={false} /></mesh>}
-    <Html position={[0, 1.72, 0]} center distanceFactor={24} style={{ pointerEvents: "none" }}>
-      <div className={`scene-label ${active ? "active" : ""}`}><strong>{node.id}</strong><span>{node.type}</span></div>
-    </Html>
+    <Html position={[0, 1.72, 0]} center distanceFactor={24} style={{ pointerEvents: "none" }}><div className={`scene-label ${active ? "active" : ""}`}><strong>{node.id}</strong><span>{node.type}</span></div></Html>
     {node.id === "J3" && sensorStatus && <SensorMarker status={sensorStatus} label="WL-J3" />}
   </group>;
 }
 
-function Building({ x, z, w, d, h, roof }: { x: number; z: number; w: number; d: number; h: number; roof: number }) {
-  return <group position={[x, h / 2, z]}>
-    <mesh><boxGeometry args={[w, h, d]} /><meshStandardMaterial color="#aaa9a0" roughness={0.9} /></mesh>
-    <mesh position={[0, h / 2 + 0.03, 0]}><boxGeometry args={[w * 0.86, 0.06, d * 0.86]} /><meshStandardMaterial color={roof ? "#74766f" : "#85857d"} roughness={0.95} /></mesh>
-    {h > 2.6 && <mesh position={[w * 0.22, h / 2 + 0.08, -d * 0.18]}><boxGeometry args={[0.3, 0.12, 0.42]} /><meshStandardMaterial color="#5f6663" /></mesh>}
-  </group>;
-}
-
-function Road({ position, size, rotation = 0 }: { position: Vec3; size: [number, number]; rotation?: number }) {
-  return <mesh rotation={[-Math.PI / 2, 0, rotation]} position={position}><planeGeometry args={size} /><meshStandardMaterial color="#3f4443" roughness={0.98} /></mesh>;
-}
-
-function Tree({ position }: { position: Vec3 }) {
-  return <group position={position}><mesh position={[0, 0.55, 0]}><cylinderGeometry args={[0.07, 0.09, 1.1, 7]} /><meshStandardMaterial color="#5b5147" /></mesh><mesh position={[0, 1.2, 0]}><icosahedronGeometry args={[0.42, 1]} /><meshStandardMaterial color="#697461" roughness={1} /></mesh></group>;
-}
-
-function Waterway({ points, width = 0.22 }: { points: Vec3[]; width?: number }) {
-  const curve = useMemo(() => new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)), false, "catmullrom", 0.22), [points]);
-  return <mesh><tubeGeometry args={[curve, 56, width, 8, false]} /><meshStandardMaterial color="#276f8e" emissive="#124b61" emissiveIntensity={0.22} transparent opacity={0.86} /></mesh>;
-}
+function Building({ x, z, w, d, h, roof }: { x: number; z: number; w: number; d: number; h: number; roof: number }) { return <group position={[x, h / 2, z]}><mesh><boxGeometry args={[w, h, d]} /><meshStandardMaterial color="#aaa9a0" roughness={0.9} /></mesh><mesh position={[0, h / 2 + 0.03, 0]}><boxGeometry args={[w * 0.86, 0.06, d * 0.86]} /><meshStandardMaterial color={roof ? "#74766f" : "#85857d"} roughness={0.95} /></mesh>{h > 2.6 && <mesh position={[w * 0.22, h / 2 + 0.08, -d * 0.18]}><boxGeometry args={[0.3, 0.12, 0.42]} /><meshStandardMaterial color="#5f6663" /></mesh>}</group>; }
+function Road({ position, size, rotation = 0 }: { position: Vec3; size: [number, number]; rotation?: number }) { return <mesh rotation={[-Math.PI / 2, 0, rotation]} position={position}><planeGeometry args={size} /><meshStandardMaterial color="#3f4443" roughness={0.98} /></mesh>; }
+function Tree({ position }: { position: Vec3 }) { return <group position={position}><mesh position={[0, 0.55, 0]}><cylinderGeometry args={[0.07, 0.09, 1.1, 7]} /><meshStandardMaterial color="#5b5147" /></mesh><mesh position={[0, 1.2, 0]}><icosahedronGeometry args={[0.42, 1]} /><meshStandardMaterial color="#697461" roughness={1} /></mesh></group>; }
+function Waterway({ points, width = 0.22 }: { points: Vec3[]; width?: number }) { const curve = useMemo(() => new THREE.CatmullRomCurve3(points.map((p) => new THREE.Vector3(...p)), false, "catmullrom", 0.22), [points]); return <mesh><tubeGeometry args={[curve, 56, width, 8, false]} /><meshStandardMaterial color="#276f8e" emissive="#124b61" emissiveIntensity={0.22} transparent opacity={0.86} /></mesh>; }
 
 function Terrain({ rain, flood }: { rain: boolean; flood: boolean }) {
-  const buildings = useMemo(() => {
-    const result: { x: number; z: number; w: number; d: number; h: number; roof: number }[] = [];
-    for (let x = -18; x <= 18; x += 3.7) {
-      for (let z = -16; z <= 16; z += 3.6) {
-        if ((Math.round(x * 2) + Math.round(z * 3)) % 7 === 0) continue;
-        if (Math.abs(x) < 4 && Math.abs(z) < 5) continue;
-        const seed = Math.abs(Math.round(x * 31 + z * 17));
-        result.push({ x: x + ((seed % 5) - 2) * 0.18, z: z + ((seed % 7) - 3) * 0.15, w: 2.1 + (seed % 3) * 0.35, d: 2 + (seed % 4) * 0.25, h: 0.7 + (seed % 12) * 0.23, roof: seed % 2 });
-      }
-    }
-    return result;
-  }, []);
+  const buildings = useMemo(() => { const result: { x: number; z: number; w: number; d: number; h: number; roof: number }[] = []; for (let x = -18; x <= 18; x += 3.7) for (let z = -16; z <= 16; z += 3.6) { if ((Math.round(x * 2) + Math.round(z * 3)) % 7 === 0 || (Math.abs(x) < 4 && Math.abs(z) < 5)) continue; const seed = Math.abs(Math.round(x * 31 + z * 17)); result.push({ x: x + ((seed % 5) - 2) * 0.18, z: z + ((seed % 7) - 3) * 0.15, w: 2.1 + (seed % 3) * 0.35, d: 2 + (seed % 4) * 0.25, h: 0.7 + (seed % 12) * 0.23, roof: seed % 2 }); } return result; }, []);
   const trees = useMemo(() => Array.from({ length: 34 }, (_, i) => ({ x: ((i * 29) % 370) / 10 - 18.5, z: ((i * 43) % 330) / 10 - 16.5 })), []);
-  return <group>
-    <mesh rotation-x={-Math.PI / 2} position={[0, -0.1, 0]}><planeGeometry args={[46, 40]} /><meshStandardMaterial color="#77766e" roughness={1} /></mesh>
-    <Road position={[0, -0.01, 0]} size={[46, 3.3]} />
-    <Road position={[0, -0.008, -8.2]} size={[46, 2.8]} />
-    <Road position={[8.2, -0.006, 0]} size={[2.7, 40]} />
-    <Road position={[-9.3, -0.005, 0]} size={[2.4, 40]} />
-    <Waterway points={[[-22, 0.04, -14], [-15, 0.04, -12], [-8, 0.04, -10], [0, 0.04, -8], [8, 0.04, -5], [15, 0.04, -2], [22, 0.04, 2]]} width={0.26} />
-    <Waterway points={[[19, 0.045, 16], [14, 0.045, 12], [10, 0.045, 9], [7, 0.045, 6], [3, 0.045, 3], [0, 0.045, 0]]} width={0.2} />
-    {buildings.map((b, i) => <Building key={i} {...b} />)}
-    {trees.map((t, i) => <Tree key={i} position={[t.x, 0, t.z]} />)}
-    {flood && <FloodLayer />}
-    {rain && <Rain />}
-  </group>;
+  return <group><mesh rotation-x={-Math.PI / 2} position={[0, -0.1, 0]}><planeGeometry args={[46, 40]} /><meshStandardMaterial color="#77766e" roughness={1} /></mesh><Road position={[0, -0.01, 0]} size={[46, 3.3]} /><Road position={[0, -0.008, -8.2]} size={[46, 2.8]} /><Road position={[8.2, -0.006, 0]} size={[2.7, 40]} /><Road position={[-9.3, -0.005, 0]} size={[2.4, 40]} /><Waterway points={[[-22, 0.04, -14], [-15, 0.04, -12], [-8, 0.04, -10], [0, 0.04, -8], [8, 0.04, -5], [15, 0.04, -2], [22, 0.04, 2]]} width={0.26} /><Waterway points={[[19, 0.045, 16], [14, 0.045, 12], [10, 0.045, 9], [7, 0.045, 6], [3, 0.045, 3], [0, 0.045, 0]]} width={0.2} />{buildings.map((b, i) => <Building key={i} {...b} />)}{trees.map((t, i) => <Tree key={i} position={[t.x, 0, t.z]} />)}{flood && <FloodLayer />}{rain && <Rain />}</group>;
 }
+function FloodLayer() { const pools = [[-8, -4, 1.7], [7, -7, 2.3], [11, 6, 1.5], [-13, 9, 2], [3, 12, 1.8]] as const; return <group>{pools.map(([x, z, r], i) => <group key={i} position={[x, 0.025, z]}><mesh rotation-x={-Math.PI / 2}><circleGeometry args={[r, 32]} /><meshStandardMaterial color="#2f7fa1" transparent opacity={0.5} /></mesh><mesh rotation-x={-Math.PI / 2} position={[0, 0.005, 0]}><ringGeometry args={[r * 0.72, r * 0.76, 32]} /><meshBasicMaterial color="#80bfd5" transparent opacity={0.65} /></mesh></group>)}</group>; }
+function Rain() { const drops = useMemo(() => Array.from({ length: 360 }, (_, i) => ({ x: ((i * 17) % 440) / 10 - 22, y: 3.5 + ((i * 31) % 38) / 10, z: ((i * 23) % 380) / 10 - 19 })), []; return <group>{drops.map((p, i) => <mesh key={i} position={[p.x, p.y, p.z]} rotation-x={0.1}><boxGeometry args={[0.012, 0.5, 0.012]} /><meshBasicMaterial color="#a6cee0" transparent opacity={0.4} /></mesh>)}</group>; }
+function BlueprintGrid() { return <gridHelper args={[44, 44, "#3a484b", "#202a2d"]} position={[0, -0.23, 0]} />; }
+function UndergroundSurface() { return <mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}><planeGeometry args={[44, 38]} /><meshStandardMaterial color="#68716e" transparent opacity={0.12} wireframe /></mesh>; }
 
-function FloodLayer() {
-  const pools = [[-8, -4, 1.7], [7, -7, 2.3], [11, 6, 1.5], [-13, 9, 2], [3, 12, 1.8]] as const;
-  return <group>{pools.map(([x, z, r], i) => <group key={i} position={[x, 0.025, z]}><mesh rotation-x={-Math.PI / 2}><circleGeometry args={[r, 32]} /><meshStandardMaterial color="#2f7fa1" transparent opacity={0.5} /></mesh><mesh rotation-x={-Math.PI / 2} position={[0, 0.005, 0]}><ringGeometry args={[r * 0.72, r * 0.76, 32]} /><meshBasicMaterial color="#80bfd5" transparent opacity={0.65} /></mesh></group>)}</group>;
-}
-
-function Rain() {
-  const drops = useMemo(() => Array.from({ length: 360 }, (_, i) => ({ x: ((i * 17) % 440) / 10 - 22, y: 3.5 + ((i * 31) % 38) / 10, z: ((i * 23) % 380) / 10 - 19 })), []);
-  return <group>{drops.map((p, i) => <mesh key={i} position={[p.x, p.y, p.z]} rotation-x={0.1}><boxGeometry args={[0.012, 0.5, 0.012]} /><meshBasicMaterial color="#a6cee0" transparent opacity={0.4} /></mesh>)}</group>;
-}
-
-function BlueprintGrid() {
-  return <gridHelper args={[44, 44, "#3a484b", "#202a2d"]} position={[0, -0.23, 0]} />;
-}
-
-function UndergroundSurface() {
-  return <mesh rotation-x={-Math.PI / 2} position={[0, 0.02, 0]}><planeGeometry args={[44, 38]} /><meshStandardMaterial color="#68716e" transparent opacity={0.12} wireframe /></mesh>;
-}
-
-function CameraFocus({ selected, view, controlsRef }: { selected: string | null; view: EngineeringView; controlsRef: React.MutableRefObject<any> }) {
-  const { camera } = useThree();
-  const desired = useRef(new THREE.Vector3(24, 22, 29));
-  const target = useRef(new THREE.Vector3(0, 0, 0));
-  useEffect(() => {
-    const point = selected && visualNodes[selected]?.p ? new THREE.Vector3(...visualNodes[selected].p) : new THREE.Vector3(0, 0, 0);
-    if (view === "underground") point.y -= 1.2;
-    target.current.copy(point);
-    desired.current.copy(point.clone().add(new THREE.Vector3(10, 8, 12)));
-  }, [selected, view]);
-  useFrame((_, delta) => {
-    const alpha = 1 - Math.pow(0.001, Math.min(delta, 0.05));
-    camera.position.lerp(desired.current, alpha * 0.7);
-    if (controlsRef.current) {
-      controlsRef.current.target.lerp(target.current, alpha * 0.8);
-      controlsRef.current.update();
-    }
-  });
+function CameraFocus({ selected, view, controlsRef }: { selected: string | null; view: EngineeringView; controlsRef: ControlsRef }) {
+  const { camera } = useThree(); const desired = useRef(new THREE.Vector3(24, 22, 29)); const target = useRef(new THREE.Vector3(0, 0, 0));
+  useEffect(() => { const point = selected && visualNodes[selected]?.p ? new THREE.Vector3(...visualNodes[selected].p) : new THREE.Vector3(0, 0, 0); if (view === "underground") point.y -= 1.2; target.current.copy(point); desired.current.copy(point.clone().add(new THREE.Vector3(10, 8, 12))); }, [selected, view]);
+  useFrame((_, delta) => { const alpha = 1 - Math.pow(0.001, Math.min(delta, 0.05)); camera.position.lerp(desired.current, alpha * 0.7); if (controlsRef.current) { controlsRef.current.target.lerp(target.current, alpha * 0.8); controlsRef.current.update(); } });
   return null;
 }
 
 function SceneContents({ data, view, selected, onSelect, healthMode, simulationActive, rainActive, floodActive }: { data: CanonicalResponse; view: EngineeringView; selected: string | null; onSelect: (id: string | null) => void; healthMode: boolean; simulationActive: boolean; rainActive: boolean; floodActive: boolean }) {
-  const terrain = view === "terrain";
-  const underground = view === "underground";
+  const terrain = view === "terrain", underground = view === "underground";
   const highlightedCandidate = simulationActive ? data.recommendation.selected_candidate_id : null;
   const highlightedEdges = new Set(data.candidates.find((candidate) => candidate.id === highlightedCandidate)?.route_edge_ids ?? []);
   const canonicalIds = new Set(data.network.nodes.map((node) => node.id));
-  const nodes: NetworkNode[] = [...data.network.nodes, ...Object.keys(visualNodes).filter((id) => !canonicalIds.has(id)).map((id) => ({ id, type: visualNodes[id].type === "storage" ? "storage" : visualNodes[id].type === "recharge" ? "recharge" : "junction", label: `${id} sample structure`, sensor_ids: [], candidate_id: undefined, attributes: {} }))];
+  const nodes: NetworkNode[] = [...data.network.nodes, ...Object.keys(visualNodes).filter((id) => !canonicalIds.has(id)).map((id) => ({ id, type: visualNodes[id].type === "storage" ? "storage" : visualNodes[id].type === "recharge" ? "recharge" : "junction", label: `${id} sample structure`, sensor_ids: [], attributes: {} }))];
   const sensor = data.sensors.find((item) => item.id === "WL-J3");
-  return <>
-    {terrain ? <Terrain rain={rainActive} flood={floodActive} /> : <BlueprintGrid />}
-    {underground && <UndergroundSurface />}
-    {visualEdges.map((edge) => <Pipe key={edge.id} edge={edge} selected={selected === edge.id} highlighted={highlightedEdges.has(edge.id)} underground={underground} onSelect={onSelect} simulationActive={simulationActive} />)}
-    {nodes.map((node) => <Structure key={node.id} node={node} selected={selected === node.id} health={healthMode} onSelect={onSelect} underground={underground} sensorStatus={node.id === "J3" ? sensor?.status : undefined} />)}
-    <ambientLight intensity={terrain ? 1.45 : 1.12} />
-    <directionalLight position={[10, 18, 12]} intensity={terrain ? 2.15 : 1.65} />
-    <directionalLight position={[-12, 9, -8]} intensity={0.7} />
-  </>;
+  return <>{terrain ? <Terrain rain={rainActive} flood={floodActive} /> : <BlueprintGrid />}{underground && <UndergroundSurface />}{visualEdges.map((edge) => <Pipe key={edge.id} edge={edge} selected={selected === edge.id} highlighted={highlightedEdges.has(edge.id)} underground={underground} onSelect={onSelect} simulationActive={simulationActive} />)}{nodes.map((node) => <Structure key={node.id} node={node} selected={selected === node.id} health={healthMode} onSelect={onSelect} underground={underground} sensorStatus={node.id === "J3" ? sensor?.status : undefined} />)}<ambientLight intensity={terrain ? 1.45 : 1.12} /><directionalLight position={[10, 18, 12]} intensity={terrain ? 2.15 : 1.65} /><directionalLight position={[-12, 9, -8]} intensity={0.7} /></>;
 }
 
 export function EngineeringScene(props: { data: CanonicalResponse; view: EngineeringView; selected: string | null; onSelect: (id: string | null) => void; healthMode: boolean; simulationActive: boolean; rainActive: boolean; floodActive: boolean }) {
-  const controlsRef = useRef<any>(null);
-  return <div className="engineering-scene"><Canvas camera={{ position: [24, 22, 29], fov: 42 }} dpr={[1, 1.5]} onPointerMissed={() => props.onSelect(null)}>
-    <color attach="background" args={[props.view === "terrain" ? "#85837a" : "#101516"]} />
-    <SceneContents {...props} />
-    <CameraFocus selected={props.selected} view={props.view} controlsRef={controlsRef} />
-    <OrbitControls ref={controlsRef} enableDamping dampingFactor={0.075} minDistance={7} maxDistance={58} maxPolarAngle={Math.PI / 2.02} target={[0, 0, 0]} />
-  </Canvas></div>;
+  const controlsRef = useRef<ControlsRef["current"]>(null);
+  return <div className="engineering-scene"><Canvas camera={{ position: [24, 22, 29], fov: 42 }} dpr={[1, 1.5]} onPointerMissed={() => props.onSelect(null)}><color attach="background" args={[props.view === "terrain" ? "#85837a" : "#101516"]} /><SceneContents {...props} /><CameraFocus selected={props.selected} view={props.view} controlsRef={controlsRef} /><OrbitControls ref={controlsRef as any} enableDamping dampingFactor={0.075} minDistance={7} maxDistance={58} maxPolarAngle={Math.PI / 2.02} target={[0, 0, 0]} /></Canvas></div>;
 }
