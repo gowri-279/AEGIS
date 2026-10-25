@@ -1141,3 +1141,95 @@ The following are now frozen for implementation:
 - All previously frozen decisions and fixtures remain unchanged.
 
 **Implementation may proceed against this contract.**
+
+## Contract Version 1.0 — Approved Decision Semantics Amendment
+
+**Approval date:** 2026-10-24
+
+This amendment clarifies recommendation selection semantics without changing
+Contract Version, Schema Version, or Network Version.
+
+### Authoritative required constraints
+
+The backend is responsible for defining which hard constraints are required
+and in scope for each candidate. Required-constraint applicability must come
+from authoritative backend/canonical data or explicit backend rules.
+
+The frontend and Bob must not infer which constraints are required.
+
+A candidate is feasible only when every required in-scope hard constraint
+has been explicitly evaluated and has status `passed`. A required constraint
+with status `failed` or `not_evaluated`, or a missing required check, makes
+the candidate infeasible.
+
+The unmodeled downstream-capacity condition remains outside the required
+in-scope constraints for this MVP and must not be treated as a fabricated
+physical-capacity measurement.
+
+### Selection basis
+
+The canonical recommendation object adds:
+
+`selection_basis`
+
+Allowed values:
+
+- `sole_feasible_candidate`
+- `deterministic_utilization_ranking`
+- `null`
+
+The backend must provide this field directly. P4 and Bob must consume it
+without independently deriving the selection basis.
+
+### Recommendation selection rules
+
+1. If critical WL-J3 data is unusable, the recommendation must be
+   `abstained`, with no selected candidate and `selection_basis = null`.
+
+2. If no candidates satisfy all required in-scope hard constraints, the
+   recommendation must be `no_feasible_candidate`, with no selected candidate
+   and `selection_basis = null`.
+
+3. If exactly one candidate is feasible, it may be selected as the
+   `sole_feasible_candidate`, even when modeled network utilization or
+   remaining storage is unavailable. Missing metrics must remain `null`;
+   they must not be fabricated or treated as zero. The ranking list remains
+   empty because no utilization-based ranking was performed.
+
+4. If multiple candidates are feasible, deterministic selection requires
+   evaluable ranking metrics for the eligible candidates. If those metrics
+   are unavailable, the system must abstain, select no candidate, and set
+   `selection_basis = null`.
+
+5. If multiple feasible candidates have the required ranking metrics, select
+   according to the existing deterministic ranking rules and set
+   `selection_basis = deterministic_utilization_ranking`.
+
+Any recommendation remains within `recommendation_scope = limited_mvp_scope`
+and `safety_qualified = false`.
+
+### Standard fixture
+
+For the standard fixture:
+
+- C-L1 fails its required storage constraint.
+- C-R1 is ineligible for recharge.
+- C-L2 passes all required in-scope hard constraints.
+- C-L2 is the sole feasible candidate and is selected.
+- `selection_basis = sole_feasible_candidate`.
+- Unsupported physical-capacity and ranking metrics remain `null`.
+- `recommendation_scope = limited_mvp_scope`.
+- `safety_qualified = false`.
+
+### Required regression coverage
+
+Tests must cover:
+
+- A sole feasible candidate with unavailable ranking metrics.
+- Multiple feasible candidates with unavailable ranking metrics.
+- A required constraint with status `not_evaluated`.
+- No feasible candidates.
+- Critical WL-J3 abstention.
+
+The implementation remains an illustrative MVP and is not a validated
+real-world hydraulic safety model.
