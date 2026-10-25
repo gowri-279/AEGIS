@@ -43,6 +43,7 @@ class Recommendation:
     selected_candidate_id: Optional[str]
     recommendation_scope: str = "limited_mvp_scope"
     safety_qualified: bool = False
+    selection_basis: Optional[str] = None
     rationale: list[str] = field(default_factory=list)
     uncertainty: list[str] = field(default_factory=list)
     data_limitations: list[str] = field(default_factory=list)

@@ -119,37 +119,40 @@ def evaluate_feasibility(
     candidate_id: str,
     checks: list[ConstraintCheck],
 ) -> CandidateEvaluation:
-    by_name = {check.constraint: check for check in checks}
+    """Evaluate feasibility using explicit backend candidate rules."""
 
-    required_constraints = {
-        "storage",
-        "j3_water_level",
+    required_by_candidate = {
+        "C-L1": {
+            "storage",
+            "j3_water_level",
+            "edge_capacity",
+        },
+        "C-R1": {
+            "j3_water_level",
+            "recharge_eligibility",
+        },
+        "C-L2": {
+            "storage",
+            "j3_water_level",
+            "candidate_flow_limit",
+        },
     }
 
-    # Physical edge capacity is required when it is known.
-    # If it is unavailable, a documented candidate-level flow limit
-    # may be used for the limited MVP feasibility check.
-    edge_check = by_name.get("edge_capacity")
-    candidate_limit_check = by_name.get("candidate_flow_limit")
+    required_constraints = required_by_candidate.get(candidate_id)
 
-    if edge_check is not None and edge_check.status == "failed":
-        required_constraints.add("edge_capacity")
-    elif (
-        edge_check is not None
-        and edge_check.status == "passed"
-    ):
-        required_constraints.add("edge_capacity")
-    elif candidate_limit_check is not None:
-        required_constraints.add("candidate_flow_limit")
-    else:
-        required_constraints.add("edge_capacity")
+    # Unknown candidates cannot be declared feasible without an
+    # authoritative required-constraint policy.
+    if required_constraints is None:
+        return CandidateEvaluation(
+            candidate_id=candidate_id,
+            checks=checks,
+            feasible=False,
+        )
 
-    if candidate_id == "C-R1":
-        required_constraints.add("recharge_eligibility")
+    by_name = {check.constraint: check for check in checks}
 
     feasible = all(
-        by_name.get(name) is not None
-        and by_name[name].status == "passed"
+        name in by_name and by_name[name].status == "passed"
         for name in required_constraints
     )
 

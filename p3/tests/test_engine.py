@@ -24,3 +24,17 @@ def test_water_level_at_limit_fails():
         check for check in l2.checks if check.constraint == "j3_water_level"
     )
     assert water_check.status == "failed"
+
+def test_required_constraint_not_evaluated_makes_candidate_infeasible():
+    from p3.constraints import evaluate_feasibility
+    from p3.models import ConstraintCheck
+
+    checks = [
+        ConstraintCheck("storage", "passed"),
+        ConstraintCheck("j3_water_level", "passed"),
+        ConstraintCheck("candidate_flow_limit", "not_evaluated"),
+    ]
+
+    result = evaluate_feasibility("C-L2", checks)
+
+    assert result.feasible is False
