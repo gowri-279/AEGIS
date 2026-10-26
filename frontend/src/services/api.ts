@@ -1,0 +1,422 @@
+// Live AEGIS backend boundary. Signatures stay stable for Monitor.
+// Bob helpers remain local mocks; assessment/network use HTTP.
+import { fixtures, type FixtureId } from "@/data/mockCanonicalResponse";
+import type {
+  Candidate,
+  CanonicalResponse,
+  ConstraintEvaluation,
+  ConstraintStatus,
+  Network,
+  NetworkNode,
+  NodeType,
+  Recommendation,
+  RecommendationStatus,
+  RiskCategory,
+  RiskFinding,
+  Sensor,
+  SensorStatus,
+  Severity,
+} from "@/data/types";
+import { mockHealthBobReply, type HealthBobRequest, type HealthBobResponse } from "@/data/healthBob";
+import { mockBobScenario, type BobScenarioId } from "@/data/bobInterventions";
+import { mockSimBobReply, type SimBobReply } from "@/data/simBob";
+import { landingDemoModel } from "@/data/landingDemoNetwork";
+
+/** Separate local landing model; never reads Monitor fixtures or backend state. */
+export function getLandingDemoModel() {
+  return landingDemoModel;
+}
+
+export interface ScenarioRequest {
+  fixture: FixtureId;
+  scenarioOptionId?: string;
+  diverted_volume_m3?: number;
+  duration_s?: number;
+}
+
+const API_BASE = (
+  (import.meta.env["VITE_AEGIS_API_URL"] as string | undefined) ||
+  "http://127.0.0.1:8000"
+).replace(/\/$/, "");
+
+const FIXTURE_LABELS: Record<FixtureId, string> = {
+  standard: "Standard · 200 m³ / 600 s",
+  degraded: "WL-J3 degraded (usable)",
+  critical_stale: "WL-J3 stale (critical failure)",
+  stress: "Stress · 900 m³ / 600 s",
+};
+
+const CANDIDATE_NODE: Record<string, string> = {
+  "C-L1": "L1",
+  "C-R1": "R1",
+  "C-L2": "L2",
+};
+
+const CANDIDATE_EDGE: Record<string, string> = {
+  "C-L1": "E-J3-L1",
+  "C-R1": "E-J3-R1",
+  "C-L2": "E-J3-L2",
+};
+
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function nodeType(id: string, raw: string): NodeType {
+  if (id === "J4") return "downstream_junction";
+  const allowed: NodeType[] = [
+    "collection_inlet",
+    "junction",
+    "storage",
+    "recharge",
+    "downstream_junction",
+    "outlet",
+  ];
+  return (allowed.includes(raw as NodeType) ? raw : "junction") as NodeType;
+}
+
+function nodeLabel(id: string, type: NodeType): string {
+  const titles: Record<NodeType, string> = {
+    collection_inlet: "Collection inlet",
+    junction: "Junction",
+    storage: "Storage",
+    recharge: "Recharge",
+    downstream_junction: "Downstream junction",
+    outlet: "Outlet",
+  };
+  return `${titles[type]} ${id}`;
+}
+
+function mapNetwork(raw: Record<string, unknown>): Network {
+  const nodesIn = (raw["nodes"] as Record<string, unknown>[]) || [];
+  const edgesIn = (raw["edges"] as Record<string, unknown>[]) || [];
+  const nodes: NetworkNode[] = nodesIn.map((n) => {
+    const id = String(n["id"]);
+    const type = nodeType(id, String(n["type"] ?? "junction"));
+    const attributes: NetworkNode["attributes"] = {};
+    if (n["available_storage_m3"] != null) attributes["available_storage_m3"] = n["available_storage_m3"] as number;
+    if (n["recharge_eligibility"] != null) attributes["recharge_eligibility"] = n["recharge_eligibility"] as string;
+    if (n["elevation_m"] != null) attributes["elevation_m"] = n["elevation_m"] as number;
+    if (id === "J3") {
+      attributes["hard_threshold_depth_m"] = 0.8;
+      attributes["threshold_rule"] = "depth < 0.80 m";
+    }
+    if (id === "L2") attributes["candidate_capacity_constraint_m3s"] = 0.5;
+    const candidate_id = Object.entries(CANDIDATE_NODE).find(([, nodeId]) => nodeId === id)?.[0];
+    return {
+      id,
+      type,
+      label: nodeLabel(id, type),
+      sensor_ids: id === "J3" ? ["WL-J3"] : [],
+      ...(candidate_id ? { candidate_id } : {}),
+      attributes,
+    };
+  });
+  return {
+    network_id: String(raw["network_id"] ?? "aegis_demo_catchment"),
+    nodes,
+    edges: edgesIn.map((e) => ({
+      id: String(e["id"]),
+      from: String(e["from"]),
+      to: String(e["to"]),
+    })),
+  };
+}
+
+function mapSensor(raw: Record<string, unknown>): Sensor {
+  const id = String(raw["sensor_id"] ?? raw["id"] ?? "unknown");
+  const status = String(raw["quality_status"] ?? raw["status"] ?? "missing") as SensorStatus;
+  const codes = (raw["issue_codes"] as string[] | undefined) ?? [];
+  const sensorType = String(raw["sensor_type"] ?? "water_level");
+  const variable =
+    sensorType === "water_level" ? "water_depth" : sensorType === "rainfall" ? "rainfall" : sensorType;
+  const unit = variable === "water_depth" ? "m" : variable === "flow" ? "m³/s" : "";
+  const node_id = id.includes("-") ? id.split("-").slice(1).join("-") : "J3";
+  // WL-J3 → J3, RF-J3 → J3, FL-L1 → L1
+  const inferredNode = id.startsWith("WL-") || id.startsWith("RF-") || id.startsWith("WQ-")
+    ? id.replace(/^(WL|RF|WQ)-/, "")
+    : id.startsWith("FL-") || id.startsWith("PR-")
+      ? id.replace(/^(FL|PR)-/, "")
+      : node_id;
+  return {
+    id,
+    node_id: inferredNode,
+    variable,
+    unit,
+    critical: id === "WL-J3",
+    raw_value: (raw["raw_value"] as number | null) ?? null,
+    effective_value: (raw["effective_value"] as number | null) ?? null,
+    status,
+    confidence: (raw["confidence"] as number | null) ?? null,
+    timestamp: (raw["timestamp"] as string | null) ?? null,
+    ...(codes.length ? { issue: codes.join(", ") } : {}),
+  };
+}
+
+function mapSeverity(raw: unknown): Severity {
+  const s = String(raw ?? "moderate");
+  if (s === "medium") return "moderate";
+  if (s === "low" || s === "moderate" || s === "high" || s === "critical") return s;
+  return "moderate";
+}
+
+function mapRiskCategory(raw: unknown): RiskCategory {
+  const s = String(raw ?? "infrastructure_anomaly");
+  if (s === "hydraulic_overload") return "hydraulic_overload";
+  if (s === "water_level_threshold_exceeded") return "hydraulic_overload";
+  if (s === "sensor_reliability_warning" || s === "data_reliability") return "data_reliability";
+  if (s === "water_quality_threshold_exceeded" || s === "water_quality") return "water_quality";
+  if (s === "overflow" || s === "bottleneck" || s === "downstream_propagation" || s === "infrastructure_anomaly") {
+    return s;
+  }
+  return "infrastructure_anomaly";
+}
+
+function mapRiskFinding(raw: Record<string, unknown>): RiskFinding {
+  const sensorId = raw["sensor_id"] != null ? String(raw["sensor_id"]) : undefined;
+  const nodeId = raw["node_id"] != null ? String(raw["node_id"]) : undefined;
+  const edgeId = raw["edge_id"] != null ? String(raw["edge_id"]) : undefined;
+  const target = nodeId ?? edgeId ?? sensorId ?? "J3";
+  return {
+    id: String(raw["finding_id"] ?? raw["id"] ?? `RK-${target}`),
+    category: mapRiskCategory(raw["risk_type"] ?? raw["category"]),
+    target_id: target,
+    title: String(raw["title"] ?? humanizeRisk(raw["risk_type"] ?? "Finding")),
+    observed_value: (raw["observed_value"] as number | null) ?? null,
+    threshold: (raw["threshold"] as number | null) ?? null,
+    ...(raw["unit"] != null ? { unit: String(raw["unit"]) } : {}),
+    severity: mapSeverity(raw["severity"]),
+    confidence: (raw["confidence"] as number | null) ?? null,
+    evidence: (raw["evidence"] as string[]) ?? [],
+    potential_impact: String(raw["impact"] ?? raw["potential_impact"] ?? ""),
+  };
+}
+
+function humanizeRisk(value: unknown): string {
+  return String(value ?? "Finding").replaceAll("_", " ");
+}
+
+/** Prefer live P2 risk_findings; if empty, surface sensor_issues so Health still has live evidence. */
+function mapRisks(payload: Record<string, unknown>): RiskFinding[] {
+  const assessed = (payload["assessed_state"] as Record<string, unknown> | undefined) ?? {};
+  const rawRisks = (payload["risks"] as Record<string, unknown>[] | undefined)
+    ?? (assessed["risk_findings"] as Record<string, unknown>[] | undefined)
+    ?? [];
+  if (rawRisks.length) return rawRisks.map(mapRiskFinding);
+
+  const issues = (assessed["sensor_issues"] as Record<string, unknown>[] | undefined) ?? [];
+  return issues.map((issue) => {
+    const sensorId = String(issue["sensor_id"] ?? "WL-J3");
+    const code = String(issue["issue_code"] ?? "SENSOR_ISSUE");
+    const status = String(issue["quality_status"] ?? "stale");
+    return {
+      id: `RK-${sensorId}-${code}`,
+      category: "data_reliability" as const,
+      target_id: sensorId,
+      title: `Critical sensor ${status}`,
+      observed_value: null,
+      threshold: 0.8,
+      unit: "m",
+      severity: (status === "stale" || status === "missing" ? "critical" : "high") as Severity,
+      confidence: null,
+      evidence: [`${sensorId}: ${code}`, `quality_status=${status}`],
+      potential_impact: "Required J3 check cannot be defensibly evaluated.",
+    };
+  });
+}
+
+function mapConstraintStatus(raw: string): ConstraintStatus {
+  if (raw === "passed" || raw === "pass") return "pass";
+  if (raw === "failed" || raw === "fail") return "fail";
+  return "not_evaluated";
+}
+
+function mapConstraint(raw: Record<string, unknown>): ConstraintEvaluation {
+  const details = (raw["details"] as Record<string, unknown> | undefined) ?? {};
+  const observed =
+    (details["water_depth_m"] as number | undefined)
+    ?? (details["proposed_volume_m3"] as number | undefined)
+    ?? (details["flow_m3_s"] as number | undefined)
+    ?? null;
+  const limit =
+    (details["maximum_depth_m"] as number | undefined)
+    ?? (details["available_storage_m3"] as number | undefined)
+    ?? (details["candidate_limit_m3_s"] as number | undefined)
+    ?? (details["capacity_m3_s"] as number | undefined)
+    ?? null;
+  const name = String(raw["constraint"] ?? "constraint");
+  return {
+    constraint_id: name.toUpperCase(),
+    description: name.replaceAll("_", " "),
+    status: mapConstraintStatus(String(raw["status"] ?? "not_evaluated")),
+    observed,
+    limit,
+    unit: "",
+    ...((raw["reason_codes"] as string[] | undefined)?.length
+      ? { note: ((raw["reason_codes"] as string[]) ?? []).join(", ") }
+      : {}),
+  };
+}
+
+function mapCandidates(
+  evaluations: Record<string, unknown>[],
+  ranking: string[],
+  network: Network,
+): Candidate[] {
+  const rankIndex = new Map(ranking.map((id, i) => [id, i + 1]));
+  return evaluations.map((item) => {
+    const id = String(item["candidate_id"]);
+    const node_id = CANDIDATE_NODE[id] ?? id;
+    const node = network.nodes.find((n) => n.id === node_id);
+    const kind = id === "C-R1" ? "recharge" as const : "storage" as const;
+    const feasible = item["feasible"] == null ? null : Boolean(item["feasible"]);
+    const checks = ((item["checks"] as Record<string, unknown>[]) ?? []).map(mapConstraint);
+    return {
+      id,
+      node_id,
+      kind,
+      route_edge_ids: CANDIDATE_EDGE[id] ? [CANDIDATE_EDGE[id]] : [],
+      available_storage_m3: (node?.attributes["available_storage_m3"] as number | undefined) ?? null,
+      eligible: kind === "recharge"
+        ? String(node?.attributes["recharge_eligibility"] ?? "ineligible") === "eligible"
+        : true,
+      feasible,
+      constraints: checks,
+      rank: rankIndex.get(id) ?? (feasible ? null : null),
+    };
+  });
+}
+
+function mapRecommendation(raw: Record<string, unknown>): Recommendation {
+  const status = String(raw["recommendation_status"] ?? "abstained") as RecommendationStatus;
+  return {
+    recommendation_status: status,
+    selected_candidate_id: (raw["selected_candidate_id"] as string | null) ?? null,
+    recommendation_scope: String(raw["recommendation_scope"] ?? "limited_mvp_scope"),
+    safety_qualified: Boolean(raw["safety_qualified"]),
+    rationale: (raw["rationale"] as string[]) ?? [],
+    uncertainty: (raw["uncertainty"] as string[]) ?? [],
+    data_limitations: (raw["data_limitations"] as string[]) ?? [],
+  };
+}
+
+function mapCanonical(
+  payload: Record<string, unknown>,
+  networkRaw: Record<string, unknown> | null,
+  scenarioOptionId?: string,
+): CanonicalResponse {
+  const network = mapNetwork(networkRaw ?? (payload["network"] as Record<string, unknown>));
+  const networkState = (payload["network_state"] as Record<string, unknown> | undefined) ?? {};
+  const sensorsRaw = (networkState["sensors"] as Record<string, unknown>[] | undefined) ?? [];
+  const scenario = (payload["scenario"] as Record<string, unknown> | undefined) ?? {};
+  const simulation = (payload["simulation_result"] as Record<string, unknown> | undefined) ?? {};
+  const evaluations = (payload["candidate_evaluations"] as Record<string, unknown>[] | undefined) ?? [];
+  const ranking = (payload["ranking"] as string[] | undefined) ?? [];
+  const fixtureId = String(payload["fixture_id"] ?? "standard") as FixtureId;
+  const selected = (payload["recommendation"] as Record<string, unknown> | undefined)?.["selected_candidate_id"] as string | null;
+  const candidates = mapCandidates(evaluations, ranking, network);
+  if (selected && ranking.length === 0) {
+    const hit = candidates.find((c) => c.id === selected);
+    if (hit) hit.rank = 1;
+  }
+
+  return {
+    fixture_id: fixtureId in FIXTURE_LABELS ? fixtureId : "standard",
+    fixture_label: FIXTURE_LABELS[fixtureId] ?? FIXTURE_LABELS.standard,
+    data_provenance: "synthetic_illustrative",
+    generated_at: new Date().toISOString(),
+    network,
+    sensors: sensorsRaw.map(mapSensor),
+    risks: mapRisks(payload),
+    simulation: {
+      ...(scenarioOptionId ? { scenario_option_id: scenarioOptionId } : {}),
+      scenario_id: String(simulation["scenario_id"] ?? scenario["scenario_id"] ?? "storage_and_recharge_demo"),
+      diverted_volume_m3: Number(simulation["proposed_volume_m3"] ?? scenario["diverted_volume"] ?? 200),
+      duration_s: Number(simulation["duration_seconds"] ?? scenario["duration"] ?? 600),
+      proposed_flow_m3s: Number(simulation["proposed_flow_m3_s"] ?? 0),
+      model_note: "Model output for MVP evaluation. Not CFD.",
+    },
+    candidates,
+    recommendation: mapRecommendation((payload["recommendation"] as Record<string, unknown>) ?? {}),
+  };
+}
+
+async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
+  const response = await fetch(`${API_BASE}${path}`, init);
+  if (!response.ok) {
+    throw new Error(`AEGIS API ${path} failed (${response.status})`);
+  }
+  return response.json();
+}
+
+async function fetchNetwork(): Promise<Record<string, unknown>> {
+  return (await fetchJson("/api/v1/network")) as Record<string, unknown>;
+}
+
+async function postAssessment(fixture: FixtureId, req?: ScenarioRequest): Promise<Record<string, unknown>> {
+  const body: Record<string, unknown> = { fixture };
+  if (req?.diverted_volume_m3 != null) body["diverted_volume"] = req.diverted_volume_m3;
+  if (req?.duration_s != null) body["duration"] = req.duration_s;
+  return (await fetchJson("/api/v1/assessment", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })) as Record<string, unknown>;
+}
+
+/** Secondary offline fallback only when the backend is unreachable. */
+function fallbackCanonical(fixture: FixtureId, scenarioOptionId?: string): CanonicalResponse {
+  console.warn(`[aegis] backend unreachable at ${API_BASE}; using secondary fixture fallback for ${fixture}`);
+  const response = fixtures[fixture];
+  return scenarioOptionId
+    ? { ...response, simulation: { ...response.simulation, scenario_option_id: scenarioOptionId } }
+    : response;
+}
+
+async function loadCanonical(fixture: FixtureId, req?: ScenarioRequest): Promise<CanonicalResponse> {
+  try {
+    const [assessment, network] = await Promise.all([
+      postAssessment(fixture, req),
+      fetchNetwork().catch(() => null),
+    ]);
+    return mapCanonical(assessment, network, req?.scenarioOptionId);
+  } catch (error) {
+    console.warn("[aegis] live assessment failed; secondary fixture fallback", error);
+    return fallbackCanonical(fixture, req?.scenarioOptionId);
+  }
+}
+
+export async function getCanonicalResponse(fixture: FixtureId = "standard"): Promise<CanonicalResponse> {
+  return loadCanonical(fixture);
+}
+
+export async function runScenario(req: ScenarioRequest): Promise<CanonicalResponse> {
+  return loadCanonical(req.fixture, req);
+}
+
+/** Health scan uses live assessment risks (P2), not mockHealthFindings. */
+export async function getHealthFindings(fixtureId: string): Promise<RiskFinding[]> {
+  const fixture = (fixtureId in FIXTURE_LABELS ? fixtureId : "standard") as FixtureId;
+  try {
+    const assessment = await postAssessment(fixture);
+    return mapRisks(assessment);
+  } catch (error) {
+    console.warn("[aegis] live health findings failed; secondary fixture risks", error);
+    await delay(150);
+    return fixtures[fixture]?.risks ?? [];
+  }
+}
+
+/** Replaceable local provider seam. No network calls or keys in the demo. */
+export async function getHealthBobReply(request: HealthBobRequest): Promise<HealthBobResponse> {
+  return mockHealthBobReply(request);
+}
+
+/** Authored demonstration outcomes behind the same replaceable service boundary. */
+export async function runBobScenario(context: HealthBobRequest["context"], scenarioId: BobScenarioId) {
+  return mockBobScenario(context, scenarioId);
+}
+
+/** Simulate-mode Bob: deterministic mock assistant over supplied scenario data. */
+export async function getSimBobReply(question: string, data: CanonicalResponse): Promise<SimBobReply> {
+  await delay(200);
+  return mockSimBobReply(question, data);
+}
