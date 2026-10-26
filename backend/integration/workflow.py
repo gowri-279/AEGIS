@@ -87,9 +87,18 @@ def run_integrated_assessment(
         assessed_state=p2_result,
         scenario={
             "scenario_id": scenario_id,
+            # Preserve existing fields consumed by the frontend.
             "proposed_volume_m3": proposed_volume_m3,
             "duration_seconds": duration_seconds,
             "recharge_eligibility": recharge_eligibility,
+            # Contract §17 fields; rainfall is unknown because no input supplies it.
+            "rainfall": None,
+            "diverted_volume": proposed_volume_m3,
+            "duration": duration_seconds,
+            "intervention_assumptions": {
+                "recharge_eligibility": recharge_eligibility,
+                "selected_candidate_id": selected_id,
+            },
         },
         candidate_evaluations=[asdict(item) for item in candidates],
         simulation_result=asdict(simulation),

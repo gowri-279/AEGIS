@@ -58,5 +58,38 @@ class NetworkValidationTests(unittest.TestCase):
         )
 
 
+    def test_non_finite_numeric_values_are_rejected(self):
+        import math
+
+        cases = [
+            (self.network.nodes[0], "elevation_m"),
+            (self.network.nodes[1], "storage_capacity_m3"),
+            (self.network.nodes[1], "initial_occupied_storage_m3"),
+            (self.network.nodes[1], "available_storage_m3"),
+            (self.network.edges[0], "capacity_m3_s"),
+            (self.network.edges[0], "length_m"),
+            (self.network.edges[0], "candidate_capacity_constraint_m3_s"),
+        ]
+
+        for target, field in cases:
+            for value in (math.nan, math.inf, -math.inf):
+                with self.subTest(field=field, value=value):
+                    original = getattr(target, field)
+                    try:
+                        setattr(target, field, value)
+                        errors = validate_network(self.network)
+                        self.assertTrue(
+                            any("must be finite" in error for error in errors),
+                            f"{field} accepted non-finite value {value}",
+                        )
+                    finally:
+                        setattr(target, field, original)
+
+    def test_unknown_numeric_values_remain_allowed(self):
+        self.network.nodes[0].elevation_m = None
+        self.network.edges[0].length_m = None
+        self.assertEqual(validate_network(self.network), [])
+
+
 if __name__ == "__main__":
     unittest.main()
