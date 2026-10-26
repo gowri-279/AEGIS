@@ -21,6 +21,12 @@ import { mockHealthBobReply, type HealthBobRequest, type HealthBobResponse } fro
 import { mockBobScenario, type BobScenarioId } from "@/data/bobInterventions";
 import { mockSimBobReply, type SimBobReply } from "@/data/simBob";
 import { landingDemoModel } from "@/data/landingDemoNetwork";
+import type { BuildDraft } from "@/data/networkSession";
+import type { Design } from "@/data/buildWorkspace";
+import type { BuildPathKind } from "@/data/buildRequirements";
+import { WS_CANDIDATES, type CandidateId } from "@/data/buildWorkspace";
+import { PRIMARY_METRICS } from "@/data/buildSimulation";
+import { CONFIDENCE, RELIABILITY, RISKS, TERRAIN_INTEL } from "@/data/buildAssessment";
 
 /** Separate local landing model; never reads Monitor fixtures or backend state. */
 export function getLandingDemoModel() {
@@ -419,4 +425,162 @@ export async function runBobScenario(context: HealthBobRequest["context"], scena
 export async function getSimBobReply(question: string, data: CanonicalResponse): Promise<SimBobReply> {
   await delay(200);
   return mockSimBobReply(question, data);
+}
+
+/* ---------- Build session re-exports (preserve V2 draft/finalize architecture) ---------- */
+export {
+  getNetworkSession,
+  subscribeNetworkSession,
+  selectSessionNetwork,
+  getSessionDraft as getBuildDraft,
+  saveSessionDraft as saveBuildDraft,
+  finalizeSessionNetwork as addFinalizedBuildNetwork,
+} from "@/data/networkSession";
+export type { BuildDraft, SessionNetwork } from "@/data/networkSession";
+export { resolvedSimulationResponse } from "@/data/simulationResolution";
+
+export interface BuildSimulateRequest {
+  mode: BuildPathKind;
+  rainfall_scenario?: string;
+  fixture?: FixtureId;
+  selected_candidate: CandidateId;
+  revision: number;
+  terrain_id?: string | null;
+  objectives?: unknown;
+  constraints?: unknown;
+  active_design: Design;
+}
+
+export interface BuildSimulateResult {
+  status: string;
+  fixture_id?: string;
+  active_design: Design;
+  design_fingerprint: {
+    node_ids: Array<string | undefined>;
+    link_ids: Array<string | undefined>;
+    revision?: number;
+    selected_candidate?: string;
+    mode?: string;
+  };
+  recommendation_status?: string;
+  selected_candidate_id?: string | null;
+  reason_codes?: string[];
+  engineering_warnings?: string[];
+  display_metrics_source: "frontend_v2";
+  /** Authored V2 metrics retained for UI — never replaced by invented backend numbers. */
+  v2_metrics: [string, string][];
+  v2_primary: typeof PRIMARY_METRICS;
+  assessment?: Record<string, unknown>;
+  live: boolean;
+}
+
+let lastBuildSimulation: BuildSimulateResult | null = null;
+export const getLastBuildSimulation = () => lastBuildSimulation;
+
+/** Enrich assessment with live P2/P3 where available; keep all authored V2 fields. */
+export async function enrichBuildAssessment(fixture: FixtureId = "standard") {
+  const v2 = {
+    terrain: TERRAIN_INTEL,
+    reliability: RELIABILITY,
+    risks: RISKS,
+    confidence: CONFIDENCE,
+  };
+  try {
+    const assessment = await postAssessment(fixture);
+    return {
+      ...v2,
+      live: true as const,
+      recommendation_status: (assessment["recommendation"] as { recommendation_status?: string } | undefined)?.recommendation_status,
+      reason_codes: (assessment["recommendation"] as { reason_codes?: string[] } | undefined)?.reason_codes ?? [],
+      live_risks: mapRisks(assessment),
+      decision_gate: (assessment["assessed_state"] as { decision_gate?: string } | undefined)?.decision_gate,
+    };
+  } catch (error) {
+    console.warn("[aegis] build assessment enrichment failed; retaining V2 values", error);
+    return { ...v2, live: false as const, live_risks: [] as RiskFinding[], recommendation_status: undefined, reason_codes: [] as string[], decision_gate: undefined };
+  }
+}
+
+/**
+ * Simulate the CURRENT applied active design.
+ * Backend validates/binds the design fingerprint via P1/P2/P3; V2 display metrics stay authored.
+ */
+export async function runBuildSimulation(req: BuildSimulateRequest): Promise<BuildSimulateResult> {
+  const candidate = WS_CANDIDATES.find((c) => c.id === req.selected_candidate);
+  const v2_metrics = candidate?.metrics ?? [];
+  try {
+    const raw = await fetchJson("/api/v1/build/simulate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    }) as Record<string, unknown>;
+    const result: BuildSimulateResult = {
+      status: String(raw["status"] ?? "ok"),
+      fixture_id: raw["fixture_id"] as string | undefined,
+      active_design: (raw["active_design"] as Design) ?? req.active_design,
+      design_fingerprint: (raw["design_fingerprint"] as BuildSimulateResult["design_fingerprint"]) ?? {
+        node_ids: req.active_design.nodes.map((n) => n.id),
+        link_ids: req.active_design.links.map((l) => l.id),
+        revision: req.revision,
+        selected_candidate: req.selected_candidate,
+        mode: req.mode,
+      },
+      recommendation_status: raw["recommendation_status"] as string | undefined,
+      selected_candidate_id: (raw["selected_candidate_id"] as string | null | undefined) ?? null,
+      reason_codes: (raw["reason_codes"] as string[]) ?? [],
+      engineering_warnings: (raw["engineering_warnings"] as string[]) ?? [],
+      display_metrics_source: "frontend_v2",
+      v2_metrics,
+      v2_primary: PRIMARY_METRICS,
+      assessment: raw["assessment"] as Record<string, unknown> | undefined,
+      live: true,
+    };
+    // Guard: never accept a response that drops the applied design topology.
+    const returnedIds = new Set(result.active_design.nodes.map((n) => n.id));
+    if (!req.active_design.nodes.every((n) => returnedIds.has(n.id))) {
+      console.warn("[aegis] build simulate returned mismatched design; keeping applied active design");
+      result.active_design = req.active_design;
+    }
+    lastBuildSimulation = result;
+    return result;
+  } catch (error) {
+    console.warn("[aegis] build simulate unavailable; retaining V2 metrics for applied design", error);
+    const fallback: BuildSimulateResult = {
+      status: "fallback",
+      active_design: req.active_design,
+      design_fingerprint: {
+        node_ids: req.active_design.nodes.map((n) => n.id),
+        link_ids: req.active_design.links.map((l) => l.id),
+        revision: req.revision,
+        selected_candidate: req.selected_candidate,
+        mode: req.mode,
+      },
+      display_metrics_source: "frontend_v2",
+      v2_metrics,
+      v2_primary: PRIMARY_METRICS,
+      engineering_warnings: ["Live build simulation unavailable — showing authored V2 metrics for the applied design."],
+      live: false,
+    };
+    lastBuildSimulation = fallback;
+    return fallback;
+  }
+}
+
+/** Optional in-memory backend finalize mirror (Monitor still uses networkSession). */
+export async function finalizeBuildOnBackend(draft: BuildDraft, networkId: string): Promise<void> {
+  try {
+    await fetchJson("/api/v1/build/finalize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        mode: draft.path,
+        network_id: networkId,
+        selected_candidate: draft.candidate,
+        revision: draft.revision,
+        active_design: draft.design,
+      }),
+    });
+  } catch (error) {
+    console.warn("[aegis] backend finalize mirror skipped", error);
+  }
 }

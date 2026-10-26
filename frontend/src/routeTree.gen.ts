@@ -12,6 +12,13 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BuildRouteImport } from './routes/build'
 import { Route as MonitorRouteImport } from './routes/monitor'
+import { Route as BuildAssessmentRouteImport } from './routes/build_.assessment'
+import { Route as BuildBriefRouteImport } from './routes/build_.brief'
+import { Route as BuildNewRouteImport } from './routes/build_.new'
+import { Route as BuildRedesignRouteImport } from './routes/build_.redesign'
+import { Route as BuildRequirementsRouteImport } from './routes/build_.requirements'
+import { Route as BuildReviewRouteImport } from './routes/build_.review'
+import { Route as BuildWorkspaceRouteImport } from './routes/build_.workspace'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -28,35 +35,129 @@ const MonitorRoute = MonitorRouteImport.update({
   path: '/monitor',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BuildAssessmentRoute = BuildAssessmentRouteImport.update({
+  id: '/build_/assessment',
+  path: '/build/assessment',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuildBriefRoute = BuildBriefRouteImport.update({
+  id: '/build_/brief',
+  path: '/build/brief',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuildNewRoute = BuildNewRouteImport.update({
+  id: '/build_/new',
+  path: '/build/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuildRedesignRoute = BuildRedesignRouteImport.update({
+  id: '/build_/redesign',
+  path: '/build/redesign',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuildRequirementsRoute = BuildRequirementsRouteImport.update({
+  id: '/build_/requirements',
+  path: '/build/requirements',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuildReviewRoute = BuildReviewRouteImport.update({
+  id: '/build_/review',
+  path: '/build/review',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BuildWorkspaceRoute = BuildWorkspaceRouteImport.update({
+  id: '/build_/workspace',
+  path: '/build/workspace',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/build': typeof BuildRoute
   '/monitor': typeof MonitorRoute
+  '/build/assessment': typeof BuildAssessmentRoute
+  '/build/brief': typeof BuildBriefRoute
+  '/build/new': typeof BuildNewRoute
+  '/build/redesign': typeof BuildRedesignRoute
+  '/build/requirements': typeof BuildRequirementsRoute
+  '/build/review': typeof BuildReviewRoute
+  '/build/workspace': typeof BuildWorkspaceRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/build': typeof BuildRoute
   '/monitor': typeof MonitorRoute
+  '/build/assessment': typeof BuildAssessmentRoute
+  '/build/brief': typeof BuildBriefRoute
+  '/build/new': typeof BuildNewRoute
+  '/build/redesign': typeof BuildRedesignRoute
+  '/build/requirements': typeof BuildRequirementsRoute
+  '/build/review': typeof BuildReviewRoute
+  '/build/workspace': typeof BuildWorkspaceRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/build': typeof BuildRoute
   '/monitor': typeof MonitorRoute
+  '/build_/assessment': typeof BuildAssessmentRoute
+  '/build_/brief': typeof BuildBriefRoute
+  '/build_/new': typeof BuildNewRoute
+  '/build_/redesign': typeof BuildRedesignRoute
+  '/build_/requirements': typeof BuildRequirementsRoute
+  '/build_/review': typeof BuildReviewRoute
+  '/build_/workspace': typeof BuildWorkspaceRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/build' | '/monitor'
+  fullPaths:
+    | '/'
+    | '/build'
+    | '/monitor'
+    | '/build/assessment'
+    | '/build/brief'
+    | '/build/new'
+    | '/build/redesign'
+    | '/build/requirements'
+    | '/build/review'
+    | '/build/workspace'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/build' | '/monitor'
-  id: '__root__' | '/' | '/build' | '/monitor'
+  to:
+    | '/'
+    | '/build'
+    | '/monitor'
+    | '/build/assessment'
+    | '/build/brief'
+    | '/build/new'
+    | '/build/redesign'
+    | '/build/requirements'
+    | '/build/review'
+    | '/build/workspace'
+  id:
+    | '__root__'
+    | '/'
+    | '/build'
+    | '/monitor'
+    | '/build_/assessment'
+    | '/build_/brief'
+    | '/build_/new'
+    | '/build_/redesign'
+    | '/build_/requirements'
+    | '/build_/review'
+    | '/build_/workspace'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BuildRoute: typeof BuildRoute
   MonitorRoute: typeof MonitorRoute
+  BuildAssessmentRoute: typeof BuildAssessmentRoute
+  BuildBriefRoute: typeof BuildBriefRoute
+  BuildNewRoute: typeof BuildNewRoute
+  BuildRedesignRoute: typeof BuildRedesignRoute
+  BuildRequirementsRoute: typeof BuildRequirementsRoute
+  BuildReviewRoute: typeof BuildReviewRoute
+  BuildWorkspaceRoute: typeof BuildWorkspaceRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -82,6 +183,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MonitorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/build_/assessment': {
+      id: '/build_/assessment'
+      path: '/build/assessment'
+      fullPath: '/build/assessment'
+      preLoaderRoute: typeof BuildAssessmentRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/build_/brief': {
+      id: '/build_/brief'
+      path: '/build/brief'
+      fullPath: '/build/brief'
+      preLoaderRoute: typeof BuildBriefRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/build_/new': {
+      id: '/build_/new'
+      path: '/build/new'
+      fullPath: '/build/new'
+      preLoaderRoute: typeof BuildNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/build_/redesign': {
+      id: '/build_/redesign'
+      path: '/build/redesign'
+      fullPath: '/build/redesign'
+      preLoaderRoute: typeof BuildRedesignRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/build_/requirements': {
+      id: '/build_/requirements'
+      path: '/build/requirements'
+      fullPath: '/build/requirements'
+      preLoaderRoute: typeof BuildRequirementsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/build_/review': {
+      id: '/build_/review'
+      path: '/build/review'
+      fullPath: '/build/review'
+      preLoaderRoute: typeof BuildReviewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/build_/workspace': {
+      id: '/build_/workspace'
+      path: '/build/workspace'
+      fullPath: '/build/workspace'
+      preLoaderRoute: typeof BuildWorkspaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -89,6 +239,13 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BuildRoute: BuildRoute,
   MonitorRoute: MonitorRoute,
+  BuildAssessmentRoute: BuildAssessmentRoute,
+  BuildBriefRoute: BuildBriefRoute,
+  BuildNewRoute: BuildNewRoute,
+  BuildRedesignRoute: BuildRedesignRoute,
+  BuildRequirementsRoute: BuildRequirementsRoute,
+  BuildReviewRoute: BuildReviewRoute,
+  BuildWorkspaceRoute: BuildWorkspaceRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

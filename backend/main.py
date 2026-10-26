@@ -6,6 +6,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.integration.build_bridge import (
+    finalize_build_network,
+    list_finalized_networks,
+    run_build_simulation,
+)
 from backend.integration.scenarios import (
     FIXED_EVALUATION_TIME,
     FixtureId,
@@ -136,3 +141,61 @@ def post_assessment(request: AssessmentRequest) -> dict:
             status_code=422,
             detail="Unable to process the supplied assessment inputs.",
         ) from exc
+
+
+class BuildSimulateRequest(BaseModel):
+    """Build simulation request bound to the CURRENT active design."""
+
+    mode: Literal["new", "redesign"] | None = None
+    rainfall_scenario: str | None = "Extreme Rainfall"
+    fixture: str | None = None
+    selected_candidate: str | None = None
+    revision: int | None = None
+    terrain_id: str | None = None
+    objectives: Any = None
+    constraints: Any = None
+    active_design: dict[str, Any]
+    proposed_volume_m3: float | None = None
+    diverted_volume: float | None = None
+    duration_seconds: float | None = None
+    duration: float | None = None
+    scenario_id: str | None = None
+    rainfall: float | None = None
+
+
+class BuildFinalizeRequest(BaseModel):
+    mode: Literal["new", "redesign"]
+    network_id: str
+    selected_candidate: str | None = None
+    revision: int | None = None
+    active_design: dict[str, Any]
+
+
+@app.post("/api/v1/build/simulate")
+def post_build_simulate(request: BuildSimulateRequest) -> dict:
+    """Simulate the applied Build active design via P1/P2/P3 (no V2 metric invention)."""
+    try:
+        return run_build_simulation(request.model_dump())
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Unable to simulate the supplied active design.",
+        ) from exc
+
+
+@app.post("/api/v1/build/finalize")
+def post_build_finalize(request: BuildFinalizeRequest) -> dict:
+    """In-memory finalize of the exact active design (demo persistence only)."""
+    try:
+        return finalize_build_network(request.model_dump())
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=422,
+            detail="Unable to finalize the supplied active design.",
+        ) from exc
+
+
+@app.get("/api/v1/build/networks")
+def get_build_networks() -> dict:
+    """List in-memory finalized Build networks."""
+    return {"networks": list_finalized_networks()}

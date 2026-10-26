@@ -90,6 +90,8 @@ export interface Candidate {
 }
 
 export interface SimulationResult {
+  /** Service-authored session outcome; baseline measurements are not recalculated. */
+  session_resolution?: { plan_id: string; status: "feasible" };
   /** Input identity when several scenario options share a supplied fixture. */
   scenario_option_id?: string;
   scenario_id: string;
