@@ -1,0 +1,58 @@
+# AEGIS Frontend V2 Roadmap
+- [ ] Refine landing-only Blueprint framing, physical depth, slow idle orbit/pause/resume, amber compartment and J1 sensor; preserve topology/page/Monitor and verify live.
+- [x] Replace landing SVG with isolated interactive Monitor-style demo; update eyebrow/remove diagram caption and link Monitor branding home; orbit, zoom, selection, Terrain/Blueprint, desktop/mobile navigation verified without page errors; 98 tests pass.
+- [x] Landing page at `/` (hero wordmark, floating illustrative network SVG, Monitor/Build cards), EngineeringApp moved to `/monitor`, Build placeholder at `/build`; global Title Case labels and "Synthetic · Illustrative" capitalization
+- [x] Correct Network alternative panels, selected Health label placement, contained Scenario menu and uncropped Simulate overview framing; all five Scenario and Bob evaluation → recommendation → Review paths verified live without page errors; 96 tests pass, latest targeted regressions pass and preview build OK. Abstained/infeasible plans retain supplied decisions and full evidence without invented feasible outcomes.
+- [x] Completed Health and Simulation plans remain in open details but disappear from the Action Plan menu on Back; active-only priority filtering/pagination and empty state verified, 80 tests pass, live Simulation completion flow verified without page errors.
+- [x] Review-only: removed status strip/header badges; two-plan heading menu, unchanged detail with back control, red Priority filter without count; 77 tests pass, automatic build OK, live menu/detail/back/filter and retained completion verified; Network chrome unchanged.
+- [x] Import frontend/ into project root; docs saved in docs/
+- [x] Restore clean functional baseline (remove undefined visual refs, strictness fixes)
+- [x] Presentation-layer rebuild v1 (SVG network workspace, four modes, Bob panel)
+- [x] Evolve central view into a restrained spatial catchment model while preserving workspace and canonical semantics
+- [x] Verify all modes, selection, scenario outcomes, generic topology, and desktop/mobile framing
+- [x] Restore dark-only immersive twin, Terrain/Blueprint and angle-driven cutaway
+- [x] Add inspection camera orbit/pan/zoom/focus/reset and contextual inventory/inspector/Bob
+- [x] Verify modes, canonical outcomes, representations, camera and generic topology
+- [x] Refine Network conduits into one clear representation without changing canonical edges
+- [x] Strengthen smooth component focus from model and Inventory, preserving connected context and reset
+- [x] Verify Terrain/Blueprint, canonical four-node and approved eight-node compatibility, 20 regression tests and successful preview validation
+- [x] Move single conduits below terrain and verify camera-angle cutaway and dynamic eight-node structures (browser-only topology; canonical four-node fixture unchanged)
+- [x] Add expanded/minimized Health and Simulate workspaces preserving selected components and results
+- [x] Add presentation-only diagnostic sweep and verify canonical finding/candidate focus and simulation route animation; not-evaluated routes never animate
+- [x] Run 25 regression tests and browser checks for both representations, topology sizes and analytical layouts; automatic build/type validation successful; Bob unchanged
+- [x] Add the approved eight-node/eight-edge topology to existing synthetic fixtures, preserving existing values and all analytical behaviour
+- [x] Verify exact topology, Terrain/Blueprint rendering and selection for newly added components; 31 tests passed, automatic build OK, live model and Inventory selection verified without browser errors
+- [x] Health Step 1: direct Run Health Scan, delayed node-attached severity markers and multiple synthetic findings; preserve terrain and Bob, with no marker interaction
+- [x] Verify scan timing, severity mapping, real-node association, retained evidence and unchanged adjacent workflows; 38 tests pass, automatic build OK, browser scan/re-run and Terrain/Blueprint checks pass without errors
+- [x] Health Step 2: clickable severity markers focus real components and open one left inspection panel; close restores overview without resolving findings
+- [x] Verify problem switching, evidence/unknown values, marker persistence, camera focus and unchanged Bob/adjacent workflows; 41 tests pass, automatic build/type validation OK, live desktop/phone checks pass without page errors
+- [x] Health refinement: one unified inspection panel (finding first, then canonical component details and sensors); distinct Blueprint shapes per component role; severity rings/markers consistent across Terrain and Blueprint
+- [x] Verify unified panel contents, Blueprint ring severity fix (L2 stays red when selected), marker persistence across representations; 41 tests pass, automatic build OK, live checks pass without page errors
+- [x] Health/Blueprint refinement: full canonical sections (operational data, sensors, risks, connections, candidate, limitations) inside the unified left Health panel via shared CanonicalNodeSections; Blueprint storage rendered as a distinct rectangular reservoir symbol
+- [x] Verify unified panel sections, J3→L1 switching, marker persistence after close, Blueprint J/L/O shape differentiation; 41 tests pass, automatic build OK, live checks pass without page errors
+- [x] Health panel alignment: finding panel matches Network inventory footprint, canonical component profile returns on the right, both visible with the selected component centered between them; decision-support hierarchy (issue, severity, grouped observation, evidence, impact callout)
+- [x] Verify dual-panel layout, finding-only left panel, canonical right panel, Bob over terrain, close restoring overview; 41 tests pass, live checks pass without page errors
+- [x] Increase component focus zoom so the selected component reads prominently in the middle region while its immediate connections stay visible; camera centering, panels, topology and all other behaviour unchanged
+- [x] Verify focus zoom in Terrain/Blueprint and via Health finding focus, reset restoring the overview, no page errors; 41 tests pass
+- [x] Add topology-directed simulation water visualization on existing conduits, synchronized with simulation state and supplied routing; recharge terminates, completed routes use the supplied eligible/feasible recommendation
+- [x] Simplify Terrain IDs and title-cased Health issue labels, add a separate component-type legend; 47 tests pass, automatic build OK, live Terrain/Blueprint water movement and Health dual-panel selection verified without page errors
+- [x] Health UX: single-line component title ("L1 Storage") with a compact circular Next Problem control cycling only components with active findings; both panels, focus and highlight update together
+- [x] Verify next-problem cycling J3→L1→L2→J3, panel/inspector updates and unchanged layout; 48 tests pass, automatic build OK, live checks pass without page errors
+- [x] Health UX: add a compact Previous Problem control beside Next so the header reads "L1 Storage < >"; both step circularly through only components with active findings using the same selection, camera and highlight path
+- [x] Verify previous/next cycling both ways, panel/inspector updates and identical camera framing to a marker click; 48 tests pass, automatic build OK, live checks pass without page errors
+- [x] Add data-aware directional Network water on existing conduits, excluding ineligible branches and preserving Simulation/Health/Bob
+- [x] Verify split/merge timing, Terrain/Blueprint visibility, selection and unchanged topology: 54 tests pass, automatic build OK; live seven-path moving particle readback excludes R1, eight conduits remain, completed simulation/Health and selection preserved without page errors
+- [x] Remove unfinished real-AI helpers and provider packages; Health Bob uses local synthetic templates only, without keys or backend calls
+- [x] Add Health-specific contextual mock Bob analysis and follow-up questions, refreshing on active issue navigation without changing non-Health Bob
+- [x] Verify evidence/topology/unknown-value boundaries, mock replies and desktop panel containment; 59 tests pass, automatic build OK, live issue switching/follow-ups and legacy Network Bob verified without page errors
+- [x] Rework Health Bob into orb, deterministic mock scenario demonstrations, conversation and approval state machine
+- [x] Add action-plan confirmation and session-only Review decisions without changing canonical results
+- [x] Verify scenario constraints, approval flow, context reset, terrain animation and layouts; 67 tests pass, automatic build OK, live Terrain/Blueprint decision flow and desktop/mobile conversation checks pass without page errors
+- [x] Next phase: compact Simulate scenario menu + supplied-result interpretation; Simulate-mode Bob (mock, left panel, runs mock scenarios/what-if visuals); Health approval creates pending Action Plan; Review control center (component slabs + action plans with per-item completion); problem resolves only on action completion; shared session state across modes
+- [x] Verify: 72 tests pass, build OK, browser walkthrough of Health→Bob→Approve→Review→complete→resolved (J3 marker gone, L1/L2 remain) and Simulate Bob L2-unavailable what-if (800 m³, L1 limiting, terrain badge) without page errors
+- [x] Simulate redesign: 30/70 split, Scenario/Bob toggle, Bob question → same mock simulation pipeline (fixture/visual) → Bob interpretation + Evaluation + Result + terrain update; floating SimBob panel removed; 73 tests pass, build OK, browser-verified
+- [x] Recommendation → Action Plan: clickable "Recommended · C-L2" result box creates a normal (non-priority) action plan in Review carrying supplied simulation values; health plans keep a red PRIORITY badge; priority stored in plan data
+- [x] Review Action Plan panel: compact Priority filter toggle and ‹ 1 2 › pagination (one plan at a time) inside the panel; "No Action Plans currently" empty state; Data & modeling limitations section removed; layout preserved
+- [x] Scenario dropdown opens directly under the selector, panel-width, scrollable, dark styling; verified in browser (contained in panel, aligned under toggle)
+- [x] Verify: 75 tests pass, build/typecheck OK, browser walkthrough of dropdown, recommendation accept → Review plan without PRIORITY, no limitations section, no page errors
+- [x] Revert terrain redesign: restored original schematic stormwater-network terrain with visible conduits/connections for all eight edges in Terrain and Blueprint; removed cartoon decor (roads/houses/trees), landscape-feature structures and grass palette; ProjectedLabel stability fix retained
