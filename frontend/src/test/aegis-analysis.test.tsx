@@ -4,9 +4,10 @@ import { fixtures } from "@/data/mockCanonicalResponse";
 import { EngineeringApp } from "@/components/aegis/EngineeringApp";
 import { renderWithRouter } from "./renderWithRouter";
 
-vi.mock("@/services/api", async () => {
+vi.mock("@/services/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/services/api")>();
   const { mockHealthFindings } = await import("@/data/mockHealthFindings");
-  return { getCanonicalResponse: async () => fixtures.standard, getHealthFindings: async (id: string) => mockHealthFindings(id), runScenario: async () => fixtures.critical_stale };
+  return { ...actual, getCanonicalResponse: async () => fixtures.standard, getHealthFindings: async (id: string) => mockHealthFindings(id), runScenario: async () => fixtures.critical_stale };
 });
 vi.mock("@/components/aegis/workspace/NetworkCanvas", () => ({ NetworkCanvas: () => null }));
 afterEach(cleanup);

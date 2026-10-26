@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { Link } from "@tanstack/react-router";
-import { Activity, AlertTriangle, Bot, ListTree, Loader2, Radar, PanelLeftClose, Network as NetIcon, Play, ShieldCheck, Waves, X } from "lucide-react";
+import { Activity, AlertTriangle, Bot, ChevronRight, ListTree, Loader2, Radar, PanelLeftClose, Network as NetIcon, Play, ShieldCheck, Waves, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getCanonicalResponse, getHealthFindings, getSimBobReply, runScenario } from "@/services/api";
+import { getHealthFindings, getSimBobReply, runScenario, resolvedSimulationResponse, getNetworkSession, subscribeNetworkSession, selectSessionNetwork, type SessionNetwork } from "@/services/api";
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import type { CanonicalResponse, RiskFinding } from "@/data/types";
 import { cn } from "@/lib/utils";
 import { nodeRisks, resolveTarget, severityTone, strongestTone } from "@/lib/aegis";
@@ -32,7 +33,16 @@ const MODES: { id: WorkspaceMode; label: string; icon: typeof NetIcon; caption: 
 ];
 
 export function EngineeringApp() {
-  const [data, setData] = useState<CanonicalResponse | null>(null);
+  const session = useSyncExternalStore(subscribeNetworkSession, getNetworkSession, getNetworkSession);
+  // Separate mounted workspaces retain each network's monitoring session while
+  // preventing selection, plans, scans or asynchronous replies crossing networks.
+  return <>{session.networks.map((entry) => <div key={`${entry.id}:${entry.response.fixture_id}`} hidden={entry.id !== session.activeId}>
+    <EngineeringNetworkApp entry={entry} networks={session.networks} />
+  </div>)}</>;
+}
+
+function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; networks: SessionNetwork[] }) {
+  const [data, setData] = useState<CanonicalResponse | null>(entry.response);
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>("network");
   const { selectedId: selected, selectionRevision, select: setSelected } = useNetworkSelection();
@@ -73,6 +83,7 @@ export function EngineeringApp() {
   const acceptRecommendation = useCallback(() => {
     if (!data) return;
     if (simPhase !== "done") return;
+    if (data.simulation.session_resolution) return;
     const decision = simulationPlan(data, data.simulation.scenario_option_id ?? scenarioId, new Date().toISOString());
     if (!decision) return;
     setDecisions((previous) => [...previous.filter((item) => item.id !== decision.id), decision]);
@@ -86,13 +97,9 @@ export function EngineeringApp() {
     setSelectedFindingId(null);
     scan();
     setHealthFindings(null);
-    try { setHealthFindings({ fixtureId: data.fixture_id, risks: await getHealthFindings(data.fixture_id) }); }
+    try { setHealthFindings({ fixtureId: data.fixture_id, risks: entry.design ? entry.response.risks : await getHealthFindings(data.fixture_id) }); }
     catch { setError("Health findings could not be loaded."); }
   }
-
-  useEffect(() => {
-    getCanonicalResponse("standard").then(setData).catch(() => setError("Canonical response could not be loaded."));
-  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") { setSelectedFindingId(null); setSelected(null); setControlsOpen(false); setBobOpen(false); } };
@@ -103,9 +110,10 @@ export function EngineeringApp() {
   const select = useCallback((id: string | null) => { setSelectedFindingId(null); setSelected(id && data ? resolveTarget(data, id) : id); }, [data, setSelected]);
 
   async function runFixture(fixture: FixtureId, scenarioOptionId = scenarioId) {
+    if (entry.design) { setError("No Monitor scenario results are supplied for this finalized design. Its topology is preserved."); return; }
     setSimPhase("running");
     setBobVisual(null);
-    try { setData(await runScenario({ fixture, scenarioOptionId })); setSimPhase("done"); }
+    try { setData(resolvedSimulationResponse(await runScenario({ fixture, scenarioOptionId }), scenarioOptionId, decisions)); setSimPhase("done"); }
     catch { setError("Scenario run failed."); setSimPhase("idle"); }
   }
 
@@ -120,6 +128,7 @@ export function EngineeringApp() {
    *  authored visual) → Evaluation/Result sections + terrain update. */
   async function askSimBob(question: string) {
     if (!data || bobPending) return;
+    if (entry.design) { setError("Bob scenario results are not supplied for this finalized network."); return; }
     setBobPending(true);
     try {
       const reply = await getSimBobReply(question, data);
@@ -200,9 +209,9 @@ export function EngineeringApp() {
             </Button>
           ))}
         </nav>
-        {mode !== "review" && <div className="ws-header-status">
+        <div className={cn("ws-header-status", mode === "review" && "invisible")} aria-hidden={mode === "review"}>
           <span className="ws-synthetic">Synthetic · Illustrative</span>
-        </div>}
+        </div>
       </header>
 
       {mode === "review" ? <main className="review-workspace">
@@ -224,9 +233,21 @@ export function EngineeringApp() {
 
       <main className="ws-canvas">
         <div className="ws-canvas-caption">
-          <span>{data.network.network_id}</span><small>{current.caption} · layout is schematic, not geographic</small>
+          <DropdownMenu><DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="pointer-events-auto h-auto gap-1 p-0 font-mono text-xs" aria-label="Select AEGIS Network">
+              {entry.id}<ChevronRight size={13} />{entry.status === "Updated" && <small>Updated</small>}
+            </Button>
+          </DropdownMenuTrigger><DropdownMenuContent align="start" className="w-80 max-w-[calc(100vw-2rem)]">
+            <DropdownMenuLabel className="text-xs text-muted-foreground">AEGIS Networks</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={entry.id} onValueChange={selectSessionNetwork}>
+              {networks.map((network) => <DropdownMenuRadioItem key={network.id} value={network.id} className="items-start py-3">
+                <div className="grid gap-1"><strong className="font-mono text-xs">{network.id}</strong><p className="text-xs text-muted-foreground">{network.name}</p><p className="text-xs text-muted-foreground">{network.status === "Active" ? "Active" : `${network.status} · Active`}</p></div>
+              </DropdownMenuRadioItem>)}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent></DropdownMenu>
+          <p className="text-xs text-muted-foreground">{current.caption} · layout is schematic, not geographic</p>
         </div>
-        <NetworkCanvas data={mode === "health" ? healthData : data} mode={mode} selectedId={selected} selectionRevision={selectionRevision} onSelect={select} healthPhase={healthPhase} scanStartedAt={scanStartedAt} simPhase={simPhase} selectedFindingId={inspectingProblem ? selectedFindingId : null} onSelectHealthFinding={inspectProblem} bobVisual={mode === "health" || mode === "simulate" ? bobVisual : null} bobSignal={healthBobContext && !bobOpen ? { title: problemName(healthBobContext.finding, healthBobContext.node.id), severity: healthBobContext.finding.severity, onOpen: () => setBobOpen(true) } : null} />
+        <NetworkCanvas initialRepresentation={entry.design ? "blueprint" : "terrain"} data={mode === "health" ? healthData : data} mode={mode} selectedId={selected} selectionRevision={selectionRevision} onSelect={select} healthPhase={healthPhase} scanStartedAt={scanStartedAt} simPhase={simPhase} selectedFindingId={inspectingProblem ? selectedFindingId : null} onSelectHealthFinding={inspectProblem} bobVisual={mode === "health" || mode === "simulate" ? bobVisual : null} bobSignal={healthBobContext && !bobOpen ? { title: problemName(healthBobContext.finding, healthBobContext.node.id), severity: healthBobContext.finding.severity, onOpen: () => setBobOpen(true) } : null} />
         {bobOpen && mode === "health" && (healthBobContext ? <HealthBob key={`${data.fixture_id}:${healthBobContext.node.id}:${healthBobContext.finding.id}`} context={healthBobContext} onClose={closeHealthBob} onVisual={setBobVisual} onConversation={setBobConversation} onConfirm={confirmBobDecision} /> : <aside id="twin-bob" className="health-bob health-bob-empty twin-overlay" aria-label="Contextual Bob"><header className="health-bob-head"><Bot size={14} /><strong>Bob</strong><Button variant="ghost" size="icon" aria-label="Close Bob" title="Close Bob" onClick={() => setBobOpen(false)}><X size={16} /></Button></header><p>{healthPhase === "done" ? "Select a problem to view its synthetic analysis." : "No scanned problem selected."}</p></aside>)}
       </main>
 

@@ -116,11 +116,11 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
             {c.constraints.map((k) => <ConstraintRow key={k.constraint_id} c={k} />)}
           </div>
         ))}
-        <p className="ws-note">Candidate-level capacity constraints are MVP model constraints, not surveyed pipe capacities. {sim.model_note}</p>
+        <p className="ws-note">{sim.session_resolution ? "Action plan completed · session-only mock outcome. Displayed quantities are unchanged baseline values, not a new engineering assessment." : `Candidate-level capacity constraints are MVP model constraints, not surveyed pipe capacities. ${sim.model_note}`}</p>
         </>}
       </Section>
       <Section title="3 · Result">
-        {phase === "done" ? <><ResultBanner data={data} onAccept={onAcceptRecommendation} /><ResultInterpretation data={data} onSelect={onSelect} /></> : <p className="ws-note">{phase === "running" ? "Simulation running…" : "No simulation result."}</p>}
+        {phase === "done" ? <><ResultBanner data={data} onAccept={sim.session_resolution ? undefined : onAcceptRecommendation} /><ResultInterpretation data={data} onSelect={onSelect} /></> : <p className="ws-note">{phase === "running" ? "Simulation running…" : "No simulation result."}</p>}
       </Section>
     </div>
   );
@@ -131,7 +131,7 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
 function ResultInterpretation({ data, onSelect }: { data: CanonicalResponse; onSelect: Select }) {
   const infeasible = data.candidates.filter((c) => c.feasible === false);
   const failed = data.candidates.flatMap((c) => c.constraints.filter((rule) => rule.status === "fail").map((rule) => ({ candidate: c, rule })));
-  const unreliable = data.sensors.filter((s) => s.status !== "fresh");
+  const unreliable = data.simulation.session_resolution ? [] : data.sensors.filter((s) => s.status !== "fresh");
   const items: { tone: Tone; text: React.ReactNode }[] = [
     ...infeasible.map((c) => ({ tone: "crit" as Tone, text: <>Route infeasible: <button className="link" onClick={() => onSelect(c.node_id)}>{c.id} at {c.node_id}</button></> })),
     ...failed.map(({ candidate, rule }) => ({ tone: "crit" as Tone, text: <>Critical constraint · {candidate.node_id}: {rule.description} (observed {display(rule.observed, rule.unit)}, limit {display(rule.limit, rule.unit)})</> })),
@@ -154,7 +154,7 @@ function ResultBanner({ data, onAccept }: { data: CanonicalResponse; onAccept?: 
   const content = <>
     <Icon size={20} />
     <div>
-      <strong>{recommendationLabel[r.recommendation_status]}{r.selected_candidate_id ? ` · ${r.selected_candidate_id}` : ""}</strong>
+      <strong>{data.simulation.session_resolution ? "All Conditions Feasible" : recommendationLabel[r.recommendation_status]}{r.selected_candidate_id ? ` · ${r.selected_candidate_id}` : ""}</strong>
       <small>Scope: {humanize(r.recommendation_scope)} · Safety qualified: {r.safety_qualified ? "Yes" : "No"}</small>
     </div>
   </>;

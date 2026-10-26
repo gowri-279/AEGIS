@@ -5,7 +5,7 @@ import * as THREE from "three";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import type { CanonicalResponse, NetworkNode } from "@/data/types";
 import { Button } from "@/components/ui/button";
-import { edgeCandidates, feasibilityLabel, nodeCandidate, nodeRisks, nodeSensors, sensorTone, severityTone, strongestTone } from "@/lib/aegis";
+import { edgeCandidates, nodeCandidate, nodeRisks, nodeSensors, sensorTone, severityTone, strongestTone } from "@/lib/aegis";
 import { cn } from "@/lib/utils";
 import { routeMembership, spatialEdgeTone, spatialLayout, spatialNodeTone, structureRole, type DisplayPosition } from "./spatialPresentation";
 import { ProjectedLabel } from "./ProjectedLabel";
@@ -32,6 +32,7 @@ export interface SceneProps {
   scanStartedAt: number | null;
   simPhase: "idle" | "running" | "done";
   resetKey: number;
+  zoomRequest?: { revision: number; factor: number };
   representation: ModelRepresentation;
   selectedFindingId?: string | null;
   onSelectHealthFinding?: (findingId: string) => void;
@@ -111,7 +112,7 @@ function ModelCamera({ width, depth, props, reduced }: { width: number; depth: n
     camera.updateProjectionMatrix();
   }, [camera, width, depth, props.resetKey, props.mode]);
   useEffect(() => {
-    baseZoom.current = Math.min(size.width / (width + depth * .25 + 5), size.height / (depth * .76 + 5)) * .78;
+    baseZoom.current = Math.min(size.width / (width + depth * .25 + 5), size.height / (depth * .76 + 5)) * .97;
     const framing = inspectionFraming(props.data.network, props.selectedId);
     destination.current.set(framing.target.x, 0, framing.target.z);
     if (props.mode === "simulate" && !props.selectedId) {
@@ -129,14 +130,21 @@ function ModelCamera({ width, depth, props, reduced }: { width: number; depth: n
       camera.updateMatrixWorld();
       const projected = points.map((point) => new THREE.Vector3(point.x, 0, point.z).applyMatrix4(camera.matrixWorldInverse));
       if (projected.length) {
-        const spanX = Math.max(...projected.map((point) => point.x)) - Math.min(...projected.map((point) => point.x)) + 4;
-        const spanY = Math.max(...projected.map((point) => point.y)) - Math.min(...projected.map((point) => point.y)) + 4;
-        targetZoom.current = Math.min(targetZoom.current, size.width / spanX * .9, size.height / spanY * .9);
+        const spanX = Math.max(...projected.map((point) => point.x)) - Math.min(...projected.map((point) => point.x)) + 3;
+        const spanY = Math.max(...projected.map((point) => point.y)) - Math.min(...projected.map((point) => point.y)) + 3;
+        targetZoom.current = Math.min(targetZoom.current, size.width / spanX * .95, size.height / spanY * .95);
       }
     }
     focus.current = true;
     focusedAt.current = performance.now();
   }, [props.selectedId, props.selectionRevision, props.data.network, props.mode, size, props.resetKey]);
+  useEffect(() => {
+    if (!props.zoomRequest?.revision || !(camera instanceof THREE.OrthographicCamera)) return;
+    focus.current = false;
+    camera.zoom = THREE.MathUtils.clamp(camera.zoom * props.zoomRequest.factor, 8, 220);
+    camera.updateProjectionMatrix();
+    controls.current?.update();
+  }, [props.zoomRequest, camera]);
   useFrame((_, rawDelta) => {
     const orbit = controls.current;
     if (!orbit || !focus.current || !(camera instanceof THREE.OrthographicCamera)) return;
@@ -242,10 +250,10 @@ function NodeStructure({ node, point, props, palette }: { node: NetworkNode; poi
     <mesh name={`access-${node.id}`} position-y={DISPLAY_CONDUIT_Y / 2}><cylinderGeometry args={[.22, .22, -DISPLAY_CONDUIT_Y, 24]} /><meshStandardMaterial color={palette["model-concrete"] ?? ""} roughness={.9} wireframe={props.representation === "blueprint"} /></mesh>
     {(problemTone || selected || tone !== "neutral") && <mesh position-y={.025} rotation-x={-Math.PI / 2}><ringGeometry args={[1.2, 1.25, 64]} /><meshBasicMaterial color={ringColor} transparent opacity={.8} /></mesh>}
     <ProjectedLabel position={[point.x, .6, point.z + 1.15]}>
-      <div className={cn("model-label", `tone-${tone}`, selected && "is-selected")}>
-        {props.representation === "blueprint" && candidate && (mode === "simulate" || mode === "review") && <small className="model-candidate">{candidate.id}{mode === "simulate" ? ` · ${feasibilityLabel(candidate.feasible)}` : ""}</small>}
-        <Button variant="ghost" className="model-node-button" aria-label={`${node.id} ${node.label}`} aria-pressed={selected} onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}><strong>{node.id}</strong>{props.representation === "blueprint" && <span>{node.label}</span>}</Button>
-        {props.representation === "blueprint" && sensors.length > 0 && <div className="model-sensors">{sensors.map((s) => <span key={s.id} className={`tone-${sensorTone[s.status]}`} title={`${s.id} · ${s.status}`}><i />{s.id} · {s.status}</span>)}</div>}
+      <div className={cn("model-label", `tone-${tone}`, selected && "is-selected", mode === "simulate" && "is-id-only")}>
+        {mode !== "simulate" && props.representation === "blueprint" && candidate && mode === "review" && <small className="model-candidate">{candidate.id}</small>}
+        <Button variant="ghost" className="model-node-button" aria-label={`${node.id} ${node.label}`} aria-pressed={selected} onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}><strong>{node.id}</strong>{mode !== "simulate" && props.representation === "blueprint" && <span>{node.label}</span>}</Button>
+        {mode !== "simulate" && props.representation === "blueprint" && sensors.length > 0 && <div className="model-sensors">{sensors.map((s) => <span key={s.id} className={`tone-${sensorTone[s.status]}`} title={`${s.id} · ${s.status}`}><i />{s.id} · {s.status}</span>)}</div>}
       </div>
     </ProjectedLabel>
     <ProjectedLabel position={[point.x, 1.9, point.z - .65]}>

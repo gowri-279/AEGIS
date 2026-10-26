@@ -8,6 +8,9 @@ import { mockHealthBobReply, type HealthBobRequest, type HealthBobResponse } fro
 import { mockBobScenario, type BobScenarioId } from "@/data/bobInterventions";
 import { mockSimBobReply, type SimBobReply } from "@/data/simBob";
 import { landingDemoModel } from "@/data/landingDemoNetwork";
+export { resolvedSimulationResponse } from "@/data/simulationResolution";
+export { getNetworkSession, subscribeNetworkSession, selectSessionNetwork, getSessionDraft as getBuildDraft, saveSessionDraft as saveBuildDraft, finalizeSessionNetwork as addFinalizedBuildNetwork } from "@/data/networkSession";
+export type { BuildDraft, SessionNetwork } from "@/data/networkSession";
 
 /** Separate local landing model; never reads Monitor fixtures or backend state. */
 export function getLandingDemoModel() {

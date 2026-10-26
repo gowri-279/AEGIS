@@ -22,6 +22,12 @@ const NODE_R = 30;
 const MIN_W = 780;
 const MIN_H = 520;
 
+// Optional mock presentation registration: unitless, never canonical geometry.
+const presentations = new WeakMap<Network, { width: number; height: number; nodes: Record<string, LayoutPoint> }>();
+export function registerNetworkPresentation(network: Network, presentation: { width: number; height: number; nodes: Record<string, LayoutPoint> }) {
+  presentations.set(network, presentation);
+}
+
 /** Layered left→right layout derived only from edge direction. Works for any IDs. */
 export function layoutNetwork(network: Network): NetworkLayout {
   const ids = network.nodes.map((n) => n.id);
@@ -54,25 +60,27 @@ export function layoutNetwork(network: Network): NetworkLayout {
   // Minimum canvas so small networks are not blown up; content is centred.
   const contentW = (colCount - 1) * COL;
   const contentH = (rowCount - 1) * ROW;
-  const width = Math.max(MIN_W, PAD_X * 2 + contentW);
-  const height = Math.max(MIN_H, PAD_Y * 2 + contentH);
+  const fixed = presentations.get(network);
+  const width = fixed?.width ?? Math.max(MIN_W, PAD_X * 2 + contentW);
+  const height = fixed?.height ?? Math.max(MIN_H, PAD_Y * 2 + contentH);
   const originX = (width - contentW) / 2;
   const originY = (height - contentH) / 2;
 
   const nodes: Record<string, LayoutNode> = {};
   for (const [l, col] of columns) {
     const offset = ((rowCount - col.length) * ROW) / 2;
-    col.forEach((id, i) => { nodes[id] = { id, layer: l, x: originX + l * COL, y: originY + offset + i * ROW }; });
+    col.forEach((id, i) => { nodes[id] = { id, layer: l, x: originX + l * COL, y: originY + offset + i * ROW, ...fixed?.nodes[id] }; });
   }
 
-  const laidEdges: LayoutEdge[] = edges.map((e) => {
-    const a = nodes[e.from]!;
-    const b = nodes[e.to]!;
+  const laidEdges: LayoutEdge[] = edges.flatMap((e) => {
+    const a = nodes[e.from];
+    const b = nodes[e.to];
+    if (!a || !b) return [];
     const dir = b.x >= a.x ? 1 : -1;
     const x1 = a.x + NODE_R * dir;
     const x2 = b.x - NODE_R * dir;
     const mx = (x1 + x2) / 2;
-    return { id: e.id, from: e.from, to: e.to, d: `M ${x1} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${x2} ${b.y}`, mid: { x: mx, y: (a.y + b.y) / 2 } };
+    return [{ id: e.id, from: e.from, to: e.to, d: `M ${x1} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${x2} ${b.y}`, mid: { x: mx, y: (a.y + b.y) / 2 } }];
   });
 
   return { width, height, nodes, edges: laidEdges };

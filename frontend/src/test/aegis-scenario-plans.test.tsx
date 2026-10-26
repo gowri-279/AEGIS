@@ -15,6 +15,23 @@ vi.mock("@/services/api", async () => {
 vi.mock("@/components/aegis/workspace/NetworkCanvas", () => ({ NetworkCanvas: () => <div /> }));
 afterEach(cleanup);
 
+it("remembers completed simulation plans across Review and a repeat scenario run", async () => {
+  renderWithRouter(<EngineeringApp />);
+  fireEvent.click(await screen.findByRole("button", { name: "Simulate" }));
+  fireEvent.click(screen.getByRole("button", { name: /Run Scenario/ }));
+  fireEvent.click(await screen.findByRole("button", { name: /Recommended · C-L2/ }));
+  const menu = within(await screen.findByLabelText("Action plan"));
+  fireEvent.click(menu.getByRole("button", { name: /—/ }));
+  const actions = menu.getAllByRole("button", { name: /^Complete action:/ });
+  actions.forEach((action) => fireEvent.click(action));
+  expect(menu.getByText("Completed · resolved")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Simulate" }));
+  fireEvent.click(screen.getByRole("button", { name: /Run Scenario/ }));
+  expect(await screen.findByText("All Conditions Feasible")).toBeTruthy();
+  expect(screen.queryByText(/Route infeasible:/)).toBeNull();
+  expect(screen.queryByRole("button", { name: /Recommended · C-L2/ })).toBeNull();
+});
+
 it.each(SCENARIOS)("preserves $label evaluation and decision in its own normal action plan", (scenario) => {
   const response = fixtures[scenario.fixture];
   const plan = simulationPlan(response, scenario.id, "2026-10-26T04:12:00Z");
