@@ -6,6 +6,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from backend.intelligence.build_bob import handle_build_bob_design
+from backend.intelligence.monitor_bob import handle_monitor_bob
 from backend.integration.build_bridge import (
     finalize_build_network,
     list_finalized_networks,
@@ -199,3 +201,36 @@ def post_build_finalize(request: BuildFinalizeRequest) -> dict:
 def get_build_networks() -> dict:
     """List in-memory finalized Build networks."""
     return {"networks": list_finalized_networks()}
+
+
+class MonitorBobRequest(BaseModel):
+    message: str = Field(min_length=1)
+    context: dict[str, Any] | None = None
+
+
+class BuildBobDesignRequest(BaseModel):
+    context: dict[str, Any] | None = None
+
+
+@app.post("/api/v1/monitor/bob")
+def post_monitor_bob(request: MonitorBobRequest) -> dict:
+    """Shared Monitor Bob intelligence (explanation + allowlisted what-if)."""
+    try:
+        return handle_monitor_bob(request.message, request.context)
+    except Exception as exc:  # pragma: no cover - defensive API boundary
+        raise HTTPException(
+            status_code=500,
+            detail="Monitor Bob request failed.",
+        ) from exc
+
+
+@app.post("/api/v1/build/bob/design")
+def post_build_bob_design(request: BuildBobDesignRequest) -> dict:
+    """Build Bob candidate intelligence with V2-safe fallback."""
+    try:
+        return handle_build_bob_design(request.context)
+    except Exception as exc:  # pragma: no cover - defensive API boundary
+        raise HTTPException(
+            status_code=500,
+            detail="Build Bob design request failed.",
+        ) from exc

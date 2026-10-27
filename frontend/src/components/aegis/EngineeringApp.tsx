@@ -11,7 +11,6 @@ import { NetworkInventory } from "./NetworkInventory";
 import { ComponentProfile } from "./ComponentProfile";
 import { useNetworkSelection } from "./useNetworkSelection";
 import { BobNavigator } from "./BobNavigator";
-import { BobPanel } from "./bob/BobPanel";
 import { NetworkCanvas } from "./workspace/NetworkCanvas";
 import { ReviewPanel, SimulatePanel, type SimInput } from "./workspace/ModePanels";
 import { SCENARIOS, type WorkspaceMode } from "./workspace/types";
@@ -258,7 +257,7 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
       </aside>}
        <aside id={mode === "network" ? "twin-bob" : undefined} className="ws-left network-bob twin-overlay" hidden={!bobOpen || mode !== "network"} aria-label="Bob network navigator panel">
         <div className="twin-bob-close"><Button variant="ghost" size="icon" title="Close Bob" aria-label="Close Bob" onClick={() => setBobOpen(false)}><X size={16} /></Button></div>
-         <div className="ws-left-body"><BobNavigator data={data} onSelect={select} /></div>
+         <div className="ws-left-body"><BobNavigator data={data} onSelect={select} onWhatIf={(question) => void askSimBob(question)} /></div>
       </aside>
       </>}
       {error && <div className="twin-error" role="alert">{error}<Button variant="ghost" size="icon" aria-label="Dismiss error" onClick={() => setError(null)}><X size={14} /></Button></div>}

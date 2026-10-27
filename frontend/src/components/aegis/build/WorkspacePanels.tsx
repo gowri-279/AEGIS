@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { AlertTriangle, ArrowLeft, Check, ChevronDown, Circle, Diamond, GitBranch, MousePointer2, Spline, Square, Triangle, Waves } from "lucide-react";
 import { CONFIDENCE } from "@/data/buildAssessment";
 import { EXPLANATION, KIND_LABEL, STATUS_LEFT, TOOLS, WHY, WS_CANDIDATES, type CandidateId, type Design, type ToolId } from "@/data/buildWorkspace";
+import { useBuildFlow } from "./buildFlowStore";
 
 const ICONS: Record<ToolId, typeof Circle> = { select: MousePointer2, junction: Circle, pipe: Spline, channel: Waves, detention: Square, recharge: Diamond, outfall: Triangle };
 
@@ -24,6 +25,16 @@ export function CandidateTabs({ active, onPick }: { active: CandidateId; onPick:
 
 export function BobDesignPanel({ active, onPick }: { active: CandidateId; onPick: (c: CandidateId) => void }) {
   const c = WS_CANDIDATES.find((x) => x.id === active)!;
+  const flow = useBuildFlow();
+  const enrich = flow.bobCandidates[active];
+  const recommended = WS_CANDIDATES.find((x) => flow.bobCandidates[x.id]?.recommended) ?? WS_CANDIDATES.find((x) => x.recommended) ?? WS_CANDIDATES[0]!;
+  const recommendedEnrich = flow.bobCandidates[recommended.id];
+  const whyItems = enrich?.tradeoffs?.length ? enrich.tradeoffs : WHY;
+  const reliabilityNote = enrich?.reliability_considerations
+    ?? "L2 sensor observation is stale. Design confidence is reduced until downstream observations are refreshed.";
+  const recommendedBlurb = recommendedEnrich?.rationale
+    ?? "J3 → L2 is the primary network bottleneck. The proposed diversion toward the eastern low-point corridor reduces upstream concentration while avoiding direct transfer of additional hydraulic load to O1.";
+  // V2 metrics remain canonical; Bob may enrich prose only.
   return <>
     <p className="bs-panel-kicker">Bob Design Intelligence</p>
     <label className="bw-group bw-select-label" htmlFor="bw-design-select">Select Design</label>
@@ -31,13 +42,13 @@ export function BobDesignPanel({ active, onPick }: { active: CandidateId; onPick
       {WS_CANDIDATES.map((x) => <option key={x.id} value={x.id}>{x.name} — {x.subtitle}</option>)}
     </select>
     <section className="bw-selected" aria-live="polite">
-      <header><strong>{c.name} — {c.subtitle}</strong>{c.recommended && <em>Recommended</em>}</header>
+      <header><strong>{c.name} — {c.subtitle}</strong>{(enrich?.recommended ?? c.recommended) && <em>Recommended</em>}</header>
       <dl className="bs-stats bw-metrics">{c.metrics.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
     </section>
-    <div className="bw-rec"><span>Recommended</span><strong>Design A — Balanced</strong>
-      <p>J3 → L2 is the primary network bottleneck. The proposed diversion toward the eastern low-point corridor reduces upstream concentration while avoiding direct transfer of additional hydraulic load to O1.</p></div>
-    <div><p className="bw-group">Why This Design</p><ul className="bw-why">{WHY.map((w) => <li key={w}><Check size={12} />{w}</li>)}</ul></div>
-    <div className="bw-note"><AlertTriangle size={13} /><div><b>Reliability Note</b><span>L2 sensor observation is stale. Design confidence is reduced until downstream observations are refreshed.</span></div></div>
+    <div className="bw-rec"><span>Recommended</span><strong>{recommendedEnrich?.name ?? `${recommended.name} — ${recommended.subtitle}`}</strong>
+      <p>{recommendedBlurb}</p></div>
+    <div><p className="bw-group">Why This Design</p><ul className="bw-why">{whyItems.map((w) => <li key={w}><Check size={12} />{w}</li>)}</ul></div>
+    <div className="bw-note"><AlertTriangle size={13} /><div><b>Reliability Note</b><span>{reliabilityNote}</span></div></div>
     <div className="bw-conf"><span>Confidence</span><strong>{CONFIDENCE.overall}%</strong><small>Based on terrain, topology, sensor reliability and downstream constraints.</small></div>
   </>;
 }

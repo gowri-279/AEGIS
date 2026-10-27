@@ -421,10 +421,121 @@ export async function runBobScenario(context: HealthBobRequest["context"], scena
   return mockBobScenario(context, scenarioId);
 }
 
-/** Simulate-mode Bob: deterministic mock assistant over supplied scenario data. */
+export interface MonitorBobSimulationRequest {
+  type: "simulation_request";
+  action: string;
+  fixture?: FixtureId;
+  scenario_option_id?: string;
+  visual?: string;
+  parameters?: Record<string, unknown>;
+  explanation?: string;
+}
+
+export interface MonitorBobResponse {
+  ok: boolean;
+  source: string;
+  error?: string | null;
+  explanation?: string | null;
+  simulation_request?: MonitorBobSimulationRequest | null;
+}
+
+/** Monitor Bob via shared backend intelligence (falls back to local mock). */
+export async function askMonitorBob(message: string, context: CanonicalResponse | Record<string, unknown>): Promise<MonitorBobResponse> {
+  try {
+    const raw = await fetchJson("/api/v1/monitor/bob", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, context }),
+    }) as MonitorBobResponse;
+    return raw;
+  } catch (error) {
+    console.warn("[aegis] monitor bob unavailable; using local mock", error);
+    const mock = mockSimBobReply(message, context as CanonicalResponse);
+    return {
+      ok: true,
+      source: "mock_fallback",
+      explanation: mock.text,
+      simulation_request: mock.fixture
+        ? {
+            type: "simulation_request",
+            action: `run_${mock.fixture}`,
+            fixture: mock.fixture,
+            scenario_option_id: mock.scenarioOptionId,
+            explanation: mock.text,
+          }
+        : null,
+    };
+  }
+}
+
+/** Simulate-mode Bob: prefer live Monitor Bob, keep mock mapping for fixtures/visuals. */
 export async function getSimBobReply(question: string, data: CanonicalResponse): Promise<SimBobReply> {
+  const live = await askMonitorBob(question, data);
+  const mock = mockSimBobReply(question, data);
+  const sim = live.simulation_request;
+  if (sim?.fixture && (sim.fixture === "standard" || sim.fixture === "degraded" || sim.fixture === "critical_stale" || sim.fixture === "stress")) {
+    return {
+      source: live.source === "bob" ? "mock" : "mock",
+      text: live.explanation || sim.explanation || mock.text,
+      fixture: sim.fixture,
+      scenarioOptionId: sim.scenario_option_id,
+      ...(sim.visual === "l2-unavailable" && mock.visual ? { visual: mock.visual } : {}),
+    };
+  }
+  if (live.explanation) {
+    return { source: "mock", text: live.explanation, fixture: mock.fixture, scenarioOptionId: mock.scenarioOptionId, visual: mock.visual };
+  }
   await delay(200);
-  return mockSimBobReply(question, data);
+  return mock;
+}
+
+export interface BuildBobCandidate {
+  id: "A" | "B" | "C";
+  name?: string;
+  recommended?: boolean;
+  rationale?: string;
+  reliability_considerations?: string;
+  tradeoffs?: string[];
+  network_changes?: string[];
+  confidence?: number;
+  flood_risk_impact?: string;
+  downstream_load_impact?: string;
+  lake_impact?: string;
+  resilience_impact?: string;
+  construction_impact?: string;
+  source?: string;
+}
+
+export interface BuildBobDesignResponse {
+  ok: boolean;
+  source: string;
+  error?: string | null;
+  explanation?: string | null;
+  candidates: BuildBobCandidate[];
+}
+
+/** Build Ask-Bob-to-Design via shared backend; always returns V2-safe candidates. */
+export async function askBuildBobDesign(context: Record<string, unknown>): Promise<BuildBobDesignResponse> {
+  try {
+    return await fetchJson("/api/v1/build/bob/design", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context }),
+    }) as BuildBobDesignResponse;
+  } catch (error) {
+    console.warn("[aegis] build bob design unavailable; using V2 candidates", error);
+    return {
+      ok: false,
+      source: "v2_fallback",
+      error: "backend_unreachable",
+      explanation: "Bob design intelligence unavailable. Existing V2 candidates remain available.",
+      candidates: [
+        { id: "A", recommended: true, source: "v2" },
+        { id: "B", recommended: false, source: "v2" },
+        { id: "C", recommended: false, source: "v2" },
+      ],
+    };
+  }
 }
 
 /* ---------- Build session re-exports (preserve V2 draft/finalize architecture) ---------- */

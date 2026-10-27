@@ -2,19 +2,59 @@ import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, Bot, Check, LogOut, PanelRight, Play, Waves, Wrench } from "lucide-react";
 import type { BuildPathKind } from "@/data/buildRequirements";
-import { BOB_SEQUENCE } from "@/data/buildAssessment";
+import { BOB_SEQUENCE, DOWNSTREAM, NETWORK_INTEL, RELIABILITY, RISKS, TERRAIN_INTEL } from "@/data/buildAssessment";
 import { candidateDesign, connectNodes, placeComponent, TOOLS, updateLink, updateNodePurpose, type CandidateId, type Design, type EditResult, type ToolId } from "@/data/buildWorkspace";
 import { DesignCanvas } from "./DesignCanvas";
 import { SimulationPrep, SimulationResults, SimulationRunning } from "./SimulationFlow";
 import { BobDesignPanel, PropertiesPanel, Toolbox } from "./WorkspacePanels";
-import { getBuildDraft, saveBuildDraft } from "@/services/api";
-import { getBuildFlow, setBuildFlow } from "./buildFlowStore";
+import { askBuildBobDesign, getBuildDraft, saveBuildDraft } from "@/services/api";
+import { getBuildFlow, setBuildFlow, type BobCandidateEnrichment } from "./buildFlowStore";
 
 const STEP_MS = 520;
 
-/** Mock-only transition: steps through a fixed sequence, then reveals the workspace. */
-export function BobTransition({ onDone }: { onDone: () => void }) {
+/** Transition: call shared Build Bob design intelligence, then reveal workspace. */
+export function BobTransition({ path, onDone }: { path: BuildPathKind; onDone: () => void }) {
   const [done, setDone] = useState(0);
+  useEffect(() => {
+    const flow = getBuildFlow();
+    const context = {
+      mode: path === "new" ? "New Network" : "Redesign",
+      terrain_id: flow.terrainId,
+      connection: flow.connection,
+      connection_nodes: flow.points,
+      redesign_scope: flow.redesignScope,
+      primary_objective: flow.requirements.primary,
+      secondary_objective: flow.requirements.secondary,
+      constraints: flow.requirements.constraints,
+      rainfall_scenario: flow.requirements.scenario,
+      terrain_intelligence: TERRAIN_INTEL,
+      network_intelligence: path === "redesign" ? NETWORK_INTEL.redesign : flow.connection === "no" ? NETWORK_INTEL.independent : NETWORK_INTEL.connected,
+      identified_risks: RISKS,
+      reliability_intelligence: RELIABILITY,
+      downstream_analysis: DOWNSTREAM,
+    };
+    void askBuildBobDesign(context).then((result) => {
+      const bobCandidates: Partial<Record<CandidateId, BobCandidateEnrichment>> = {};
+      for (const c of result.candidates) {
+        if (c.id !== "A" && c.id !== "B" && c.id !== "C") continue;
+        bobCandidates[c.id] = {
+          id: c.id,
+          name: c.name,
+          recommended: c.recommended,
+          rationale: c.rationale,
+          reliability_considerations: c.reliability_considerations,
+          tradeoffs: c.tradeoffs,
+          network_changes: c.network_changes,
+          confidence: c.confidence,
+          source: c.source ?? result.source,
+        };
+      }
+      setBuildFlow({
+        bobCandidates,
+        bobDesignSource: result.ok ? "bob" : "v2_fallback",
+      });
+    });
+  }, [path]);
   useEffect(() => {
     if (done >= BOB_SEQUENCE.length) { const t = setTimeout(onDone, 500); return () => clearTimeout(t); }
     const t = setTimeout(() => setDone((d) => d + 1), STEP_MS);
@@ -34,7 +74,7 @@ export function BobTransition({ onDone }: { onDone: () => void }) {
 
 export function BuildWorkspace({ path, showResults = false }: { path: BuildPathKind; showResults?: boolean }) {
   const [ready, setReady] = useState(showResults);
-  if (!ready) return <BobTransition onDone={() => setReady(true)} />;
+  if (!ready) return <BobTransition path={path} onDone={() => setReady(true)} />;
   return <DesignWorkspace path={path} showResults={showResults} />;
 }
 

@@ -9,6 +9,7 @@ import { canConfirmFinalization, FINAL_RESULTS, FINALIZE_SEQUENCE, NETWORK_SEQUE
 import { DesignCanvas } from "./DesignCanvas";
 import { SimulationPrep, SimulationRunning } from "./SimulationFlow";
 import { addFinalizedBuildNetwork, finalizeBuildOnBackend, getBuildDraft, saveBuildDraft } from "@/services/api";
+import { useBuildFlow } from "./buildFlowStore";
 
 function ReviewProperties({ design, id, onApply, onRemove, onClose }: { design: Design; id: string; onApply: (d: Design) => void; onRemove: () => void; onClose: () => void }) {
   const node = design.nodes.find((n) => n.id === id); const link = design.links.find((l) => l.id === id);
@@ -65,6 +66,7 @@ function Sequence({ title, stages, onDone }: { title: string; stages: string[]; 
 
 export function EngineeringReview({ path, design: candidateId }: { path: BuildPathKind; design: CandidateId }) {
   const cand = WS_CANDIDATES.find((c) => c.id === candidateId)!;
+  const bobEnrich = useBuildFlow().bobCandidates[candidateId];
   const title = `Design ${cand.id} — ${cand.subtitle}`;
   const [design, setDesign] = useState<Design>(() => getBuildDraft(path, candidateId).design);
   const [simulated, setSimulated] = useState<Design>(() => getBuildDraft(path, candidateId).design);
@@ -180,7 +182,8 @@ export function EngineeringReview({ path, design: candidateId }: { path: BuildPa
       <aside className="bw-left er-left" aria-label="Design review">
         <p className="bs-panel-kicker">Design Review</p>
         <div className="bw-prop-head"><strong>Design {cand.id}</strong><span>{cand.subtitle}{cand.recommended ? " · Recommended" : ""}</span></div>
-        <p className="bs-note">{REVIEW_PURPOSE}</p>
+        <p className="bs-note">{bobEnrich?.rationale ?? REVIEW_PURPOSE}</p>
+        {bobEnrich?.reliability_considerations && <p className="bs-note">{bobEnrich.reliability_considerations}</p>}
         <p className="bw-group">Design Performance <em className="er-sim">Simulated Values</em></p>
         <dl className="bs-stats">{metrics.map(([k, v]) => <div key={k}><dt>{k === "Construction" ? k : k}</dt><dd>{v}</dd></div>)}</dl>
         <p className="bw-group">Engineering Checklist</p>

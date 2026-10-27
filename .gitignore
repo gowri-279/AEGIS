@@ -10,6 +10,7 @@ venv/
 # Environment variables and secrets
 .env
 .env.*
+!.env.example
 
 # Test and coverage artifacts
 .pytest_cache/
