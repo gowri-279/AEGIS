@@ -33,11 +33,18 @@ export function spatialLayout(network: Network) {
 }
 
 export function routeMembership(data: CanonicalResponse) {
-  const candidate = data.recommendation.recommendation_status === "recommended"
-    ? data.candidates.find((c) => c.id === data.recommendation.selected_candidate_id) : undefined;
-  const edges = new Set(candidate?.route_edge_ids ?? []);
-  const nodes = new Set(candidate ? [candidate.node_id, ...data.network.edges.filter((e) => edges.has(e.id)).flatMap((e) => [e.from, e.to])] : []);
-  return { edges, nodes, candidate };
+  try {
+    const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+    const recommendation = data?.recommendation;
+    const candidate = recommendation?.recommendation_status === "recommended"
+      ? candidates.find((c) => c.id === recommendation.selected_candidate_id) : undefined;
+    const edges = new Set(candidate?.route_edge_ids ?? []);
+    const networkEdges = Array.isArray(data?.network?.edges) ? data.network.edges : [];
+    const nodes = new Set(candidate ? [candidate.node_id, ...networkEdges.filter((e) => edges.has(e.id)).flatMap((e) => [e.from, e.to])] : []);
+    return { edges, nodes, candidate };
+  } catch {
+    return { edges: new Set<string>(), nodes: new Set<string>(), candidate: undefined };
+  }
 }
 
 export function spatialNodeTone(data: CanonicalResponse, node: NetworkNode, mode: WorkspaceMode, healthDone: boolean): Tone {

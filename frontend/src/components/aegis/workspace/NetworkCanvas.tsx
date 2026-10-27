@@ -39,7 +39,7 @@ export function NetworkCanvas(props: Props) {
     <div className="model-disclosure">{representation === "terrain" ? "Abstract catchment" : "Topology drawing"} · not to scale<br />Illustrative geometry · no surveyed elevations</div>
     {props.healthPhase === "scanning" && props.mode === "health" && <div className="model-phase">Scanning canonical findings…</div>}
     {props.simPhase === "running" && props.mode === "simulate" && <div className="model-phase">Evaluating scenario…</div>}
-    {props.bobVisual && (props.mode === "health" || props.mode === "simulate") && <div className="bob-model-status" role="status">Synthetic Simulation · Illustrative<br />{props.bobVisual.scenarioId.replaceAll("_", " ")} · {props.bobVisual.running ? "running" : "demonstration result"}</div>}
+    {props.bobVisual && (props.mode === "health" || props.mode === "simulate") && <div className="bob-model-status" role="status">Synthetic Simulation · Illustrative<br />{String(props.bobVisual.scenarioId ?? "simulation").replaceAll("_", " ")} · {props.bobVisual.running ? "running" : "demonstration result"}</div>}
     <div className="net-legend" aria-label="Legend">
       <span className="model-legend-title">{{ network: "Infrastructure", health: "Health", simulate: "Simulate", review: "Review" }[props.mode]}</span>
       {legendFor(props.mode).map(([tone, label]) => <span key={label}><i className={`lg-dot tone-${tone}`} />{label}</span>)}

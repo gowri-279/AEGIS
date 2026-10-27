@@ -495,28 +495,69 @@ export interface MonitorBobResponse {
   hydraulic_result?: import("@/data/hydraulicSimulation").HydraulicResult | null;
 }
 
+function normalizeHydraulicResult(
+  raw: Record<string, unknown> | null | undefined,
+  fallback: import("@/data/hydraulicSimulation").HydraulicResult,
+): import("@/data/hydraulicSimulation").HydraulicResult {
+  if (!raw || typeof raw !== "object") return fallback;
+  const visualRaw = (raw["visual"] && typeof raw["visual"] === "object" ? raw["visual"] : {}) as Record<string, unknown>;
+  return {
+    ...fallback,
+    ok: raw["ok"] !== false,
+    condition_id: (raw["condition_id"] as typeof fallback.condition_id) || fallback.condition_id,
+    condition_label: String(raw["condition_label"] ?? fallback.condition_label),
+    action: (raw["action"] as typeof fallback.action) || fallback.action,
+    parameters: (raw["parameters"] as Record<string, unknown>) ?? {},
+    fixture: (raw["fixture"] as typeof fallback.fixture) || fallback.fixture,
+    overall_network_status: (raw["overall_network_status"] as typeof fallback.overall_network_status) || "green",
+    max_loading_ratio: typeof raw["max_loading_ratio"] === "number" ? raw["max_loading_ratio"] as number : 0,
+    critical_bottleneck: (raw["critical_bottleneck"] as string | null) ?? null,
+    storage_stress: Array.isArray(raw["storage_stress"]) ? raw["storage_stress"] as string[] : [],
+    affected_edges: Array.isArray(raw["affected_edges"]) ? raw["affected_edges"] as string[] : [],
+    affected_components: Array.isArray(raw["affected_components"]) ? raw["affected_components"] as string[] : [],
+    failed_edges: Array.isArray(raw["failed_edges"]) ? raw["failed_edges"] as string[] : [],
+    failed_components: Array.isArray(raw["failed_components"]) ? raw["failed_components"] as string[] : [],
+    downstream_impact: String(raw["downstream_impact"] ?? fallback.downstream_impact),
+    sensor_considerations: Array.isArray(raw["sensor_considerations"]) ? raw["sensor_considerations"] as string[] : [],
+    edges: Array.isArray(raw["edges"]) ? raw["edges"] as typeof fallback.edges : [],
+    components: Array.isArray(raw["components"]) ? raw["components"] as typeof fallback.components : [],
+    sensors: Array.isArray(raw["sensors"]) ? raw["sensors"] as typeof fallback.sensors : [],
+    visual: {
+      scenarioId: String(visualRaw["scenarioId"] ?? fallback.visual.scenarioId),
+      edgeStages: (visualRaw["edgeStages"] && typeof visualRaw["edgeStages"] === "object" ? visualRaw["edgeStages"] : {}) as Record<string, number>,
+      nodeStates: (visualRaw["nodeStates"] && typeof visualRaw["nodeStates"] === "object" ? visualRaw["nodeStates"] : {}) as typeof fallback.visual.nodeStates,
+      edgeStates: (visualRaw["edgeStates"] && typeof visualRaw["edgeStates"] === "object" ? visualRaw["edgeStates"] : {}) as typeof fallback.visual.edgeStates,
+    },
+    baseline_mutated: false,
+    what_if: Boolean(raw["what_if"]),
+    inspect: (raw["inspect"] as typeof fallback.inspect) ?? null,
+    summary: String(raw["summary"] ?? fallback.summary),
+  };
+}
+
 export async function runHydraulicSimulate(req: {
   condition?: string;
   action?: string;
   parameters?: Record<string, unknown>;
   apply_failure_transition?: boolean;
 }): Promise<import("@/data/hydraulicSimulation").HydraulicResult> {
+  const { runHydraulicSimulation } = await import("@/data/hydraulicSimulation");
+  const local = runHydraulicSimulation({
+    ...(req.condition != null ? { condition: req.condition } : {}),
+    ...(req.action != null ? { action: req.action } : {}),
+    ...(req.parameters != null ? { parameters: req.parameters } : {}),
+    ...(req.apply_failure_transition != null ? { applyFailureTransition: req.apply_failure_transition } : {}),
+  });
   try {
     const raw = await fetchJson("/api/v1/monitor/hydraulic-simulate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),
     });
-    return raw as import("@/data/hydraulicSimulation").HydraulicResult;
+    return normalizeHydraulicResult(raw as Record<string, unknown>, local);
   } catch (error) {
     console.warn("[aegis] hydraulic simulate unavailable; using local deterministic engine", error);
-    const { runHydraulicSimulation } = await import("@/data/hydraulicSimulation");
-    return runHydraulicSimulation({
-      condition: req.condition,
-      action: req.action,
-      parameters: req.parameters,
-      applyFailureTransition: req.apply_failure_transition,
-    });
+    return local;
   }
 }
 
@@ -538,10 +579,10 @@ export async function askMonitorBob(message: string, context: CanonicalResponse 
       explanation: mock.text,
       simulation_request: mock.fixture
         ? {
-            type: "simulation_request",
+            type: "simulation_request" as const,
             action: `run_${mock.fixture}`,
             fixture: mock.fixture,
-            scenario_option_id: mock.scenarioOptionId,
+            ...(mock.scenarioOptionId ? { scenario_option_id: mock.scenarioOptionId } : {}),
             explanation: mock.text,
           }
         : null,

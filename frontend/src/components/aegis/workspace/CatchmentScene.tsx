@@ -242,14 +242,15 @@ function NodeStructure({ node, point, props, palette }: { node: NetworkNode; poi
   const role = structureRole(node, data.network);
   // In Health after a scan, the ring belongs to the supplied problem severity and
   // must win over selection/default colours in every representation.
-  const demoState = mode === "health" || mode === "simulate" ? props.bobVisual?.nodeStates[node.id] : undefined;
+  const demoState = mode === "health" || mode === "simulate" ? props.bobVisual?.nodeStates?.[node.id] : undefined;
   const hydraulic = hydraulicTone(demoState?.hydraulicState);
-  const problemTone = hydraulic ?? (demoState ? severityTone[demoState.severity] : mode === "health" && healthPhase === "done" && risks.length ? strongestTone(risks.map((risk) => severityTone[risk.severity])) : null);
+  const demoSeverity = demoState?.severity && demoState.severity in severityTone ? severityTone[demoState.severity] : null;
+  const problemTone = hydraulic ?? (demoSeverity ?? (mode === "health" && healthPhase === "done" && risks.length ? strongestTone(risks.map((risk) => severityTone[risk.severity] ?? "neutral")) : null));
   const ringColor = problemTone ? (palette[problemTone] ?? "") : color;
   const blinking = demoState?.hydraulicState === "blinking_red";
   return <group position={[point.x, 0, point.z]} onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}>
     {props.representation === "terrain" ? <Structure role={role} palette={palette} /> : <BlueprintStructure role={role} palette={palette} />}
-    {role === "storage" && demoState?.storageLevel && <mesh name={`bob-level-${node.id}`} rotation-x={-Math.PI / 2} position-y={demoState.storageLevel === "raised" ? .22 : .04} scale={[1.45, 1, 1]}><circleGeometry args={[.84, 48]} /><meshBasicMaterial color={palette[severityTone[demoState.severity]] ?? ""} transparent opacity={.6} /></mesh>}
+    {role === "storage" && demoState?.storageLevel && <mesh name={`bob-level-${node.id}`} rotation-x={-Math.PI / 2} position-y={demoState.storageLevel === "raised" ? .22 : .04} scale={[1.45, 1, 1]}><circleGeometry args={[.84, 48]} /><meshBasicMaterial color={palette[demoSeverity ?? "warn"] ?? ""} transparent opacity={.6} /></mesh>}
     <ProjectedLabel position={[point.x, .8, point.z]} above>{selected && mode === "health" && props.bobSignal ? <BobSignal {...props.bobSignal} /> : null}</ProjectedLabel>
     <mesh name={`access-${node.id}`} position-y={DISPLAY_CONDUIT_Y / 2}><cylinderGeometry args={[.22, .22, -DISPLAY_CONDUIT_Y, 24]} /><meshStandardMaterial color={palette["model-concrete"] ?? ""} roughness={.9} wireframe={props.representation === "blueprint"} /></mesh>
     {(problemTone || selected || tone !== "neutral") && <mesh position-y={.025} rotation-x={-Math.PI / 2}><ringGeometry args={[1.2, 1.25, 64]} /><meshBasicMaterial color={ringColor} transparent opacity={blinking ? .45 : .8} /></mesh>}
@@ -315,9 +316,10 @@ function Conduit({ id, a, b, props, palette, reduced, flowStage, lastStage, flow
   const curve = useMemo(() => displayConduitCurve(a, b), [a, b]);
   const edge = data.network.edges.find((item) => item.id === id);
   const edgeHydraulic = (mode === "health" || mode === "simulate") ? props.bobVisual?.edgeStates?.[id] : undefined;
-  const demoState = (mode === "health" || mode === "simulate") && edge ? props.bobVisual?.nodeStates[edge.to] ?? props.bobVisual?.nodeStates[edge.from] : undefined;
+  const demoState = (mode === "health" || mode === "simulate") && edge ? props.bobVisual?.nodeStates?.[edge.to] ?? props.bobVisual?.nodeStates?.[edge.from] : undefined;
   const hydraulic = hydraulicTone(edgeHydraulic?.hydraulicState);
-  const tone = hydraulic ?? (demoState ? severityTone[demoState.severity] : spatialEdgeTone(data, id, mode));
+  const demoSeverity = demoState?.severity && demoState.severity in severityTone ? severityTone[demoState.severity] : null;
+  const tone = hydraulic ?? demoSeverity ?? spatialEdgeTone(data, id, mode);
   const selected = selectedId === id || (mode === "simulate" && candidatesForSelection(data, id, selectedId));
   const color = selected ? (palette["primary"] ?? "") : (palette[tone === "neutral" ? "model-metal" : tone] ?? "");
   const waterVisible = (mode === "network" || mode === "simulate" || (mode === "health" && !!props.bobVisual)) && flowStage !== undefined && edgeHydraulic?.hydraulicState !== "grey";
@@ -328,7 +330,7 @@ function Conduit({ id, a, b, props, palette, reduced, flowStage, lastStage, flow
     {/* One visible conduit per canonical edge; the wider transparent tube is hit area only. */}
     <mesh name={`conduit-${id}`} receiveShadow><tubeGeometry args={[curve, 40, props.representation === "blueprint" ? .13 : DISPLAY_CONDUIT_RADIUS, 12, false]} /><meshStandardMaterial color={selected || tone !== "neutral" ? color : (palette["model-concrete"] ?? "")} roughness={.85} wireframe={props.representation === "blueprint"} opacity={edgeHydraulic?.hydraulicState === "grey" ? .35 : 1} transparent={edgeHydraulic?.hydraulicState === "grey" || blinking} /></mesh>
     <mesh><tubeGeometry args={[curve, 20, .32, 6, false]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} /></mesh>
-    {waterVisible && flowStage !== undefined && <FlowMarkers id={id} curve={curve} color={palette[hydraulic ?? (demoState ? severityTone[demoState.severity] : "info")] ?? ""} reduced={reduced} stage={flowStage} lastStage={lastStage} startedAt={flowStartedAt} network={mode === "network"} />}
+    {waterVisible && flowStage !== undefined && <FlowMarkers id={id} curve={curve} color={palette[hydraulic ?? demoSeverity ?? "info"] ?? ""} reduced={reduced} stage={flowStage} lastStage={lastStage} startedAt={flowStartedAt} network={mode === "network"} />}
     {tone === "unknown" ? [.3, .5, .7].map((t) => { const p = curve.getPoint(t); return <mesh key={t} position={[p.x, DISPLAY_CONDUIT_Y + .24, p.z]}><sphereGeometry args={[.055, 8, 8]} /><meshBasicMaterial color={color} /></mesh>; }) : !waterVisible && <>
       <DirectionArrow curve={curve} color={color} active={flowing && mode !== "simulate"} offset={.05} reduced={reduced} />
       {flowing && mode !== "simulate" && <DirectionArrow curve={curve} color={color} active offset={.85} reduced={reduced} />}
@@ -345,8 +347,20 @@ function SceneContents({ props, palette, reduced }: { props: SceneProps; palette
   const layout = useMemo(() => spatialLayout(props.data.network), [props.data.network]);
   const flowStartedAt = useRef(0);
   useEffect(() => { if (props.mode === "network" || props.simPhase === "running" || props.bobVisual) flowStartedAt.current = performance.now(); }, [props.mode, props.simPhase, props.data, props.bobVisual?.revision]);
-  const flowPlan = useMemo(() => (props.mode === "health" || props.mode === "simulate") && props.bobVisual ? new Map(Object.entries(props.bobVisual.edgeStages)) : props.mode === "network" ? networkFlowPlan(props.data) : simulationFlowPlan(props.data, props.simPhase), [props.data, props.simPhase, props.mode, props.bobVisual]);
-  const lastStage = Math.max(0, ...flowPlan.values());
+  const flowPlan = useMemo(() => {
+    try {
+      if ((props.mode === "health" || props.mode === "simulate") && props.bobVisual) {
+        const stages = props.bobVisual.edgeStages;
+        return new Map(stages && typeof stages === "object" ? Object.entries(stages) : []);
+      }
+      if (props.mode === "network") return networkFlowPlan(props.data);
+      return simulationFlowPlan(props.data, props.simPhase);
+    } catch (error) {
+      console.warn("[aegis] flow plan failed; using empty stages", error);
+      return new Map<string, number>();
+    }
+  }, [props.data, props.simPhase, props.mode, props.bobVisual]);
+  const lastStage = flowPlan.size ? Math.max(0, ...flowPlan.values()) : 0;
   const texture = useSurfaceTexture(palette);
   const points = useMemo(() => Object.values(layout.nodes), [layout]);
   return <>

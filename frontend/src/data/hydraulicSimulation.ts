@@ -251,16 +251,47 @@ function componentLoading(
   return { observed: flow, limit: cap, state: loadingState(flow / cap) };
 }
 
+function emptyHydraulicResult(conditionId: ConditionId = "normal_rainfall", action: HydraulicAction = "run_condition"): HydraulicResult {
+  const cond = HYDRAULIC_CONDITIONS[conditionId];
+  return {
+    ok: true,
+    condition_id: conditionId,
+    condition_label: cond.label,
+    action,
+    parameters: {},
+    fixture: cond.fixture,
+    overall_network_status: "green",
+    max_loading_ratio: 0,
+    critical_bottleneck: null,
+    storage_stress: [],
+    affected_edges: [],
+    affected_components: [],
+    failed_edges: [],
+    failed_components: [],
+    downstream_impact: "Simulation unavailable; canonical baseline preserved.",
+    sensor_considerations: [],
+    edges: [],
+    components: [],
+    sensors: [],
+    visual: { scenarioId: `HYDRAULIC_${conditionId.toUpperCase()}`, edgeStages: {}, nodeStates: {}, edgeStates: {} },
+    baseline_mutated: false,
+    what_if: false,
+    inspect: null,
+    summary: "Deterministic simulation could not complete; canonical network unchanged.",
+  };
+}
+
 export function runHydraulicSimulation(opts: {
   condition?: string | null;
   action?: HydraulicAction | string;
   parameters?: Record<string, unknown>;
   applyFailureTransition?: boolean;
 }): HydraulicResult {
+  try {
   const params = { ...(opts.parameters ?? {}) };
-  let conditionId = resolveConditionId(opts.condition ?? (params.condition as string | undefined));
-  const action = (String(opts.action ?? "run_condition").toLowerCase()) as HydraulicAction;
-  if (!ALLOWED_HYDRAULIC_ACTIONS.includes(action)) throw new Error(`Action not allowlisted: ${action}`);
+  let conditionId = resolveConditionId(opts.condition ?? (params['condition'] as string | undefined));
+  const rawAction = String(opts.action ?? "run_condition").toLowerCase() as HydraulicAction;
+  const action = ALLOWED_HYDRAULIC_ACTIONS.includes(rawAction) ? rawAction : "run_condition";
   const applyFailure = opts.applyFailureTransition !== false;
 
   const disabledEdges = new Set<string>();
@@ -272,20 +303,20 @@ export function runHydraulicSimulation(opts: {
   let inspectId: string | null = null;
 
   if (action === "inspect_component") {
-    inspectId = String(params.component_id ?? params.target ?? "").toUpperCase();
+    inspectId = String(params['component_id'] ?? params['target'] ?? "").toUpperCase();
   } else if (action === "stress_edge") {
-    stressEdgeId = String(params.edge_id ?? params.target ?? "").toUpperCase();
-    if (params.condition) conditionId = resolveConditionId(String(params.condition));
+    stressEdgeId = String(params['edge_id'] ?? params['target'] ?? "").toUpperCase();
+    if (params['condition']) conditionId = resolveConditionId(String(params['condition']));
   } else if (action === "stress_component") {
-    stressComponentId = String(params.component_id ?? params.target ?? "").toUpperCase();
-    if (params.condition) conditionId = resolveConditionId(String(params.condition));
+    stressComponentId = String(params['component_id'] ?? params['target'] ?? "").toUpperCase();
+    if (params['condition']) conditionId = resolveConditionId(String(params['condition']));
   } else if (action === "reroute_flow") {
-    reroute = { from: String(params.from ?? "").toUpperCase(), to: String(params.to ?? "").toUpperCase(), percentage: Number(params.percentage ?? 100) };
+    reroute = { from: String(params['from'] ?? "").toUpperCase(), to: String(params['to'] ?? "").toUpperCase(), percentage: Number(params['percentage'] ?? 100) };
   } else if (action === "disable_edge") {
-    const eid = String(params.edge_id ?? params.target ?? "").toUpperCase();
+    const eid = String(params['edge_id'] ?? params['target'] ?? "").toUpperCase();
     if (eid) disabledEdges.add(eid);
   } else if (action === "disable_component") {
-    const cid = String(params.component_id ?? params.target ?? "").toUpperCase();
+    const cid = String(params['component_id'] ?? params['target'] ?? "").toUpperCase();
     if (cid) {
       disabledComponents.add(cid);
       for (const [eid, edge] of Object.entries(EDGE_INTELLIGENCE)) {
@@ -293,9 +324,9 @@ export function runHydraulicSimulation(opts: {
       }
     }
   } else if (action === "change_flow_split") {
-    if (params.percentage != null && (params.to || params.edge_id)) {
-      const target = String(params.edge_id ?? branchEdgeForNode(String(params.to ?? "")) ?? "").toUpperCase();
-      if (target) flowSplit = { [target]: Number(params.percentage) };
+    if (params['percentage'] != null && (params['to'] || params['edge_id'])) {
+      const target = String(params['edge_id'] ?? branchEdgeForNode(String(params['to'] ?? "")) ?? "").toUpperCase();
+      if (target) flowSplit = { [target]: Number(params['percentage']) };
     } else {
       const split: Record<string, number> = {};
       for (const [k, v] of Object.entries(params)) {
@@ -503,12 +534,17 @@ export function runHydraulicSimulation(opts: {
     inspect: inspectId && COMPONENT_INTELLIGENCE[inspectId] ? COMPONENT_INTELLIGENCE[inspectId]! : null,
     summary: summaryParts.join(" "),
   };
+  } catch (error) {
+    console.warn("[aegis] runHydraulicSimulation failed; returning safe baseline", error);
+    return emptyHydraulicResult(resolveConditionId(opts.condition), "run_condition");
+  }
 }
 
 export function explainHydraulicResult(sim: HydraulicResult, intent?: string): string {
+  if (!sim) return "Simulation result unavailable.";
   const lines = [
     "### WHAT I UNDERSTAND",
-    intent || sim.summary,
+    intent || sim.summary || "",
     "",
     "### SIMULATION",
     `Running \`${sim.action}\` under **${sim.condition_label}** via the deterministic AEGIS hydraulic engine.`,

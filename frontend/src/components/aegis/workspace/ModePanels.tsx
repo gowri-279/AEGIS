@@ -6,8 +6,6 @@ import { cn } from "@/lib/utils";
 import { ConstraintRow, KV, Pill, Section } from "./atoms";
 import { SCENARIOS } from "./types";
 import { Button } from "@/components/ui/button";
-import { MessageResponse } from "@/components/ai-elements/message";
-
 import type { BobDecision } from "@/data/bobInterventions";
 import type { SimBobReply } from "@/data/simBob";
 import type { HydraulicResult } from "@/data/hydraulicSimulation";
@@ -65,11 +63,17 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
   hydraulic?: HydraulicResult | null;
   onClearWhatIf?: () => void;
 }) {
-  const sim = data.simulation;
+  const sim = data?.simulation;
+  const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
   const [menuOpen, setMenuOpen] = useState(false);
-  const current = SCENARIOS.find((s) => s.id === scenarioId) ?? SCENARIOS[0];
-  if (!current) return null;
+  const scenarios = Array.isArray(SCENARIOS) && SCENARIOS.length > 0 ? SCENARIOS : [];
+  const current = scenarios.find((s) => s.id === scenarioId) ?? scenarios[0];
+  if (!current) {
+    return <div className="ws-stack"><p className="ws-note">Simulation scenarios unavailable. Canonical network remains visible.</p></div>;
+  }
   const CurrentIcon = scenarioIcon(current.id);
+  const failedEdges = Array.isArray(hydraulic?.failed_edges) ? hydraulic!.failed_edges : [];
+  const storageStress = Array.isArray(hydraulic?.storage_stress) ? hydraulic!.storage_stress : [];
   return (
     <div className="ws-stack">
       <div className="sim-input-toggle" role="group" aria-label="Simulation input method">
@@ -83,7 +87,7 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
               <CurrentIcon size={14} /><span>Scenario · {current.label}</span><ChevronDown size={13} />
             </Button>
             {menuOpen && <div className="scenario-menu-list" role="menu" aria-label="Scenarios">
-              {SCENARIOS.map((s) => { const Icon = scenarioIcon(s.id); return (
+              {scenarios.map((s) => { const Icon = scenarioIcon(s.id); return (
                 <Button variant="ghost" key={s.id} role="menuitemradio" aria-checked={scenarioId === s.id} className={cn("scenario", scenarioId === s.id && "is-active")} onClick={() => { setScenarioId(s.id); setMenuOpen(false); }}>
                   <Icon size={15} /><span><strong>{s.label}</strong><small>{s.detail}</small></span>
                 </Button>
@@ -106,38 +110,40 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
           )}
         </Section>
       )}
-      {bobAnswer && (
+      {bobAnswer?.text && (
         <Section title="Bob · Interpretation" aside={<Pill tone="info">Synthetic</Pill>}>
-          <div className="bob-interpretation"><MessageResponse>{bobAnswer.text}</MessageResponse></div>
+          <div className="bob-interpretation">
+            <SafeBobMarkdown text={bobAnswer.text} />
+          </div>
         </Section>
       )}
-      <Section title="2 · Evaluation" aside={phase === "done" ? <span className="ws-count">{hydraulic?.condition_label ?? data.fixture_label}</span> : undefined}>
+      <Section title="2 · Evaluation" aside={phase === "done" ? <span className="ws-count">{hydraulic?.condition_label ?? data.fixture_label ?? "Simulation"}</span> : undefined}>
         {phase !== "done" ? <p className="ws-note">{phase === "running" ? "Evaluating hydraulic condition…" : "No scenario evaluated."}</p> : <>
         {hydraulic ? (
           <div className="kv-grid">
-            <KV label="Condition" value={hydraulic.condition_label} />
-            <KV label="Network Status" value={hydraulic.overall_network_status} />
+            <KV label="Condition" value={hydraulic.condition_label ?? "—"} />
+            <KV label="Network Status" value={hydraulic.overall_network_status ?? "—"} />
             <KV label="Max Loading" value={display(hydraulic.max_loading_ratio)} />
             <KV label="Bottleneck" value={hydraulic.critical_bottleneck ?? "—"} />
-            <KV label="Failed Edges" value={hydraulic.failed_edges.join(", ") || "—"} />
-            <KV label="Storage Stress" value={hydraulic.storage_stress.join(", ") || "—"} />
+            <KV label="Failed Edges" value={failedEdges.join(", ") || "—"} />
+            <KV label="Storage Stress" value={storageStress.join(", ") || "—"} />
           </div>
         ) : (
           <div className="kv-grid">
-            <KV label="Scenario ID" value={sim.scenario_id} /><KV label="Diverted Volume" value={display(sim.diverted_volume_m3, "m³")} />
-            <KV label="Duration" value={display(sim.duration_s, "s")} /><KV label="Proposed Flow" value={display(sim.proposed_flow_m3s, "m³/s")} />
+            <KV label="Scenario ID" value={sim?.scenario_id ?? "—"} /><KV label="Diverted Volume" value={display(sim?.diverted_volume_m3, "m³")} />
+            <KV label="Duration" value={display(sim?.duration_s, "s")} /><KV label="Proposed Flow" value={display(sim?.proposed_flow_m3s, "m³/s")} />
           </div>
         )}
-        {data.candidates.map((c) => (
+        {candidates.map((c) => (
           <div key={c.id} className={cn("cand-card", `tone-${feasibilityTone(c.feasible)}`)}>
             <Button variant="ghost" className="cand-head" onClick={() => onSelect(c.node_id)}>
-              <span><strong>{c.id}</strong><small>{c.kind} at {c.node_id} · route {c.route_edge_ids.join(", ") || "—"}</small></span>
+              <span><strong>{c.id}</strong><small>{c.kind} at {c.node_id} · route {(c.route_edge_ids ?? []).join(", ") || "—"}</small></span>
               <Pill tone={feasibilityTone(c.feasible)}>{feasibilityLabel(c.feasible)}</Pill>
             </Button>
-            {c.constraints.map((k) => <ConstraintRow key={k.constraint_id} c={k} />)}
+            {(c.constraints ?? []).map((k) => <ConstraintRow key={k.constraint_id} c={k} />)}
           </div>
         ))}
-        <p className="ws-note">{hydraulic ? hydraulic.summary : `Candidate-level capacity constraints are MVP model constraints, not surveyed pipe capacities. ${sim.model_note}`}</p>
+        <p className="ws-note">{hydraulic?.summary ?? `Candidate-level capacity constraints are MVP model constraints, not surveyed pipe capacities. ${sim?.model_note ?? ""}`}</p>
         </>}
       </Section>
       <Section title="3 · Result">
@@ -147,23 +153,36 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
   );
 }
 
+function SafeBobMarkdown({ text }: { text: string }) {
+  // Prefer plain text so markdown/stream parsers cannot crash Simulate.
+  return <div className="bob-interpretation-text" style={{ whiteSpace: "pre-wrap" }}>{text}</div>;
+}
+
 /** Reading of supplied scenario outputs only — infeasible routes, failed constraints,
  *  unreliable sensors and findings are lookups, never new calculations. */
 function ResultInterpretation({ data, onSelect, hydraulic }: { data: CanonicalResponse; onSelect: Select; hydraulic: HydraulicResult | null }) {
-  const infeasible = data.candidates.filter((c) => c.feasible === false);
-  const failed = data.candidates.flatMap((c) => c.constraints.filter((rule) => rule.status === "fail").map((rule) => ({ candidate: c, rule })));
-  const unreliable = data.sensors.filter((s) => s.status !== "fresh");
+  const candidates = Array.isArray(data?.candidates) ? data.candidates : [];
+  const risks = Array.isArray(data?.risks) ? data.risks : [];
+  const sensors = Array.isArray(data?.sensors) ? data.sensors : [];
+  const infeasible = candidates.filter((c) => c.feasible === false);
+  const failed = candidates.flatMap((c) => (c.constraints ?? []).filter((rule) => rule.status === "fail").map((rule) => ({ candidate: c, rule })));
+  const unreliable = sensors.filter((s) => s.status !== "fresh");
+  const edges = Array.isArray(hydraulic?.edges) ? hydraulic!.edges : [];
+  const components = Array.isArray(hydraulic?.components) ? hydraulic!.components : [];
+  const affectedEdges = Array.isArray(hydraulic?.affected_edges) ? hydraulic!.affected_edges : [];
+  const affectedComponents = Array.isArray(hydraulic?.affected_components) ? hydraulic!.affected_components : [];
+  const sensorNotes = Array.isArray(hydraulic?.sensor_considerations) ? hydraulic!.sensor_considerations : [];
   const items: { tone: Tone; text: React.ReactNode }[] = [
     ...(hydraulic ? [
-      { tone: "info" as Tone, text: <>Condition: {hydraulic.condition_label} · overall {hydraulic.overall_network_status}</> },
-      ...hydraulic.affected_edges.map((id) => ({ tone: "crit" as Tone, text: <>Affected edge {id} · state {hydraulic.edges.find((e) => e.edge_id === id)?.state}</> })),
-      ...hydraulic.affected_components.map((id) => ({ tone: "warn" as Tone, text: <>Affected component <button className="link" onClick={() => onSelect(id)}>{id}</button> · state {hydraulic.components.find((c) => c.component_id === id)?.state}</> })),
-      ...hydraulic.sensor_considerations.map((note) => ({ tone: "warn" as Tone, text: <>{note}</> })),
+      { tone: "info" as Tone, text: <>Condition: {hydraulic.condition_label ?? "—"} · overall {hydraulic.overall_network_status ?? "—"}</> },
+      ...affectedEdges.map((id) => ({ tone: "crit" as Tone, text: <>Affected edge {id} · state {edges.find((e) => e.edge_id === id)?.state ?? "—"}</> })),
+      ...affectedComponents.map((id) => ({ tone: "warn" as Tone, text: <>Affected component <button className="link" onClick={() => onSelect(id)}>{id}</button> · state {components.find((c) => c.component_id === id)?.state ?? "—"}</> })),
+      ...sensorNotes.map((note) => ({ tone: "warn" as Tone, text: <>{note}</> })),
     ] : []),
     ...infeasible.map((c) => ({ tone: "crit" as Tone, text: <>Route infeasible: <button className="link" onClick={() => onSelect(c.node_id)}>{c.id} at {c.node_id}</button></> })),
     ...failed.map(({ candidate, rule }) => ({ tone: "crit" as Tone, text: <>Critical constraint · {candidate.node_id}: {rule.description} (observed {display(rule.observed, rule.unit)}, limit {display(rule.limit, rule.unit)})</> })),
-    ...data.risks.map((r) => ({ tone: severityTone[r.severity] as Tone, text: <>{r.title} · {r.target_id}: {r.potential_impact}</> })),
-    ...unreliable.map((s) => ({ tone: sensorTone[s.status] as Tone, text: <>Sensor unreliable: {s.id} at {s.node_id} ({s.status}){s.issue ? ` — ${s.issue}` : ""}</> })),
+    ...risks.map((r) => ({ tone: (severityTone[r.severity] ?? "unknown") as Tone, text: <>{r.title} · {r.target_id}: {r.potential_impact}</> })),
+    ...unreliable.map((s) => ({ tone: (sensorTone[s.status] ?? "unknown") as Tone, text: <>Sensor unreliable: {s.id} at {s.node_id} ({s.status}){s.issue ? ` — ${s.issue}` : ""}</> })),
   ];
   return (
     <div className="result-interpretation">
@@ -175,14 +194,16 @@ function ResultInterpretation({ data, onSelect, hydraulic }: { data: CanonicalRe
 }
 
 function ResultBanner({ data, onAccept }: { data: CanonicalResponse; onAccept?: (() => void) | undefined }) {
-  const r = data.recommendation;
-  const Icon = r.recommendation_status === "recommended" ? ShieldCheck : r.recommendation_status === "abstained" ? ShieldQuestion : ShieldAlert;
-  const className = cn("result-banner", `tone-${recommendationTone[r.recommendation_status]}`);
+  const r = data?.recommendation;
+  if (!r) return <div className="result-banner tone-unknown"><ShieldQuestion size={20} /><div><strong>No recommendation supplied</strong><small>Canonical network is unchanged.</small></div></div>;
+  const status = r.recommendation_status;
+  const Icon = status === "recommended" ? ShieldCheck : status === "abstained" ? ShieldQuestion : ShieldAlert;
+  const className = cn("result-banner", `tone-${recommendationTone[status] ?? "unknown"}`);
   const content = <>
     <Icon size={20} />
     <div>
-      <strong>{recommendationLabel[r.recommendation_status]}{r.selected_candidate_id ? ` · ${r.selected_candidate_id}` : ""}</strong>
-      <small>Scope: {humanize(r.recommendation_scope)} · Safety qualified: {r.safety_qualified ? "Yes" : "No"}</small>
+      <strong>{recommendationLabel[status] ?? status}{r.selected_candidate_id ? ` · ${r.selected_candidate_id}` : ""}</strong>
+      <small>Scope: {humanize(r.recommendation_scope ?? "limited_mvp_scope")} · Safety qualified: {r.safety_qualified ? "Yes" : "No"}</small>
     </div>
   </>;
   // Same visual box; when a recommendation can be accepted it behaves as a button.

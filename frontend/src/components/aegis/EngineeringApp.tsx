@@ -14,6 +14,7 @@ import { useNetworkSelection } from "./useNetworkSelection";
 import { BobNavigator } from "./BobNavigator";
 import { NetworkCanvas } from "./workspace/NetworkCanvas";
 import { ReviewPanel, SimulatePanel, type SimInput } from "./workspace/ModePanels";
+import { SimulateSafeBoundary } from "./workspace/SimulateSafeBoundary";
 import { SCENARIOS, type WorkspaceMode } from "./workspace/types";
 import { useDiagnosticScan } from "./workspace/useDiagnosticScan";
 import { HealthProblemPanel } from "./workspace/HealthProblemPanel";
@@ -110,16 +111,24 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
 
   const select = useCallback((id: string | null) => { setSelectedFindingId(null); setSelected(id && data ? resolveTarget(data, id) : id); }, [data, setSelected]);
 
-  function applyHydraulicVisual(result: HydraulicResult, revision = 0) {
-    setHydraulic(result);
-    setBobVisual({
-      scenarioId: result.visual.scenarioId,
-      edgeStages: result.visual.edgeStages,
-      nodeStates: result.visual.nodeStates,
-      edgeStates: result.visual.edgeStates,
-      running: false,
-      revision,
-    });
+  function applyHydraulicVisual(result: HydraulicResult | null | undefined, revision = 0) {
+    if (!result || typeof result !== "object") return;
+    try {
+      const visual = result.visual && typeof result.visual === "object" ? result.visual : null;
+      setHydraulic(result);
+      setBobVisual({
+        scenarioId: visual?.scenarioId ?? `HYDRAULIC_${String(result.condition_id ?? "sim").toUpperCase()}`,
+        edgeStages: visual?.edgeStages && typeof visual.edgeStages === "object" ? visual.edgeStages : {},
+        nodeStates: visual?.nodeStates && typeof visual.nodeStates === "object" ? visual.nodeStates : {},
+        edgeStates: visual?.edgeStates && typeof visual.edgeStates === "object" ? visual.edgeStates : {},
+        running: false,
+        revision,
+      });
+    } catch (error) {
+      console.warn("[aegis] applyHydraulicVisual failed; keeping canonical network", error);
+      setHydraulic(null);
+      setBobVisual(null);
+    }
   }
 
   async function runFixture(fixture: FixtureId, scenarioOptionId = scenarioId) {
@@ -139,22 +148,36 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
     try {
       const result = await runHydraulicSimulate({ condition: scenario.conditionId, action: "run_condition", parameters: { condition: scenario.conditionId } });
       applyHydraulicVisual(result);
-      await runFixture(result.fixture, scenario.id);
+      await runFixture((result?.fixture as FixtureId | undefined) ?? scenario.fixture, scenario.id);
     } catch {
       try {
         const result = runHydraulicSimulation({ condition: scenario.conditionId, action: "run_condition" });
         applyHydraulicVisual(result);
-        await runFixture(result.fixture, scenario.id);
-      } catch { setError("Scenario run failed."); setSimPhase("idle"); }
+        await runFixture((result?.fixture as FixtureId | undefined) ?? scenario.fixture, scenario.id);
+      } catch {
+        setError("Scenario run failed.");
+        setSimPhase("idle");
+        setBobVisual(null);
+        setHydraulic(null);
+      }
     }
   }
 
   function clearWhatIf() {
-    const baseline = runHydraulicSimulation({ condition: scenarioId, action: "reset" });
-    applyHydraulicVisual(baseline, (bobVisual?.revision ?? 0) + 1);
-    setBobAnswer(null);
-    void runFixture(baseline.fixture, "normal_rainfall");
-    setScenarioId("normal_rainfall");
+    try {
+      const baseline = runHydraulicSimulation({ condition: scenarioId, action: "reset" });
+      applyHydraulicVisual(baseline, (bobVisual?.revision ?? 0) + 1);
+      setBobAnswer(null);
+      void runFixture(baseline.fixture ?? "standard", "normal_rainfall");
+      setScenarioId("normal_rainfall");
+    } catch (error) {
+      console.warn("[aegis] clearWhatIf failed", error);
+      setHydraulic(null);
+      setBobVisual(null);
+      setBobAnswer(null);
+      setSimPhase("idle");
+      setScenarioId("normal_rainfall");
+    }
   }
 
   /** Bob question → allowlisted action → AEGIS hydraulic engine → explain + visualize. */
@@ -184,8 +207,8 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
       } else {
         setSimPhase("idle");
       }
-      if (reply.hydraulic && !reply.text.includes("RESULT")) {
-        setBobAnswer({ ...reply, text: explainHydraulicResult(reply.hydraulic, reply.text) });
+      if (reply.hydraulic && !(reply.text ?? "").includes("RESULT")) {
+        setBobAnswer({ ...reply, text: explainHydraulicResult(reply.hydraulic, reply.text ?? undefined) });
       }
     } catch { setError("Bob's simulation reply could not be loaded."); setSimPhase("idle"); }
     finally { setBobPending(false); }
@@ -275,7 +298,11 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
         <div className="ws-left-head"><div><span>{current.label}</span><small>{current.caption}</small></div><Button variant="ghost" size="icon" aria-label={analytical ? `Minimize ${current.label} panel` : "Close controls"} title={analytical ? `Minimize ${current.label} panel` : "Close controls"} onClick={() => setControlsOpen(false)}>{analytical ? <PanelLeftClose size={16} /> : <X size={16} />}</Button></div>
         <div className="ws-left-body">
           {mode === "network" && <NetworkInventory data={data} selectedId={selected} onSelect={select} />}
-           {mode === "simulate" && <SimulatePanel data={data} scenarioId={scenarioId} setScenarioId={(id) => { setScenarioId(id); setSimPhase("idle"); setBobAnswer(null); setBobVisual(null); setHydraulic(null); }} phase={simPhase} onRun={simulate} onSelect={select} input={simInput} setInput={setSimInput} bobAnswer={bobAnswer} bobPending={bobPending} onBobAsk={(question) => void askSimBob(question)} onAcceptRecommendation={acceptRecommendation} hydraulic={hydraulic} onClearWhatIf={clearWhatIf} />}
+           {mode === "simulate" && (
+             <SimulateSafeBoundary>
+               <SimulatePanel data={data} scenarioId={scenarioId} setScenarioId={(id) => { setScenarioId(id); setSimPhase("idle"); setBobAnswer(null); setBobVisual(null); setHydraulic(null); }} phase={simPhase} onRun={simulate} onSelect={select} input={simInput} setInput={setSimInput} bobAnswer={bobAnswer} bobPending={bobPending} onBobAsk={(question) => void askSimBob(question)} onAcceptRecommendation={acceptRecommendation} hydraulic={hydraulic} onClearWhatIf={clearWhatIf} />
+             </SimulateSafeBoundary>
+           )}
         </div>
       </aside>
 
@@ -295,7 +322,9 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
           </DropdownMenuContent></DropdownMenu>
           <p className="text-xs text-muted-foreground">{current.caption} · layout is schematic, not geographic</p>
         </div>
-        <NetworkCanvas initialRepresentation={entry.design ? "blueprint" : "terrain"} data={mode === "health" ? healthData : data} mode={mode} selectedId={selected} selectionRevision={selectionRevision} onSelect={select} healthPhase={healthPhase} scanStartedAt={scanStartedAt} simPhase={simPhase} selectedFindingId={inspectingProblem ? selectedFindingId : null} onSelectHealthFinding={inspectProblem} bobVisual={mode === "health" || mode === "simulate" ? bobVisual : null} bobSignal={healthBobContext && !bobOpen ? { title: problemName(healthBobContext.finding, healthBobContext.node.id), severity: healthBobContext.finding.severity, onOpen: () => setBobOpen(true) } : null} />
+        <SimulateSafeBoundary fallback={<div className="model-loading">Canonical network view recovered. Simulation overlays cleared.</div>}>
+          <NetworkCanvas initialRepresentation={entry.design ? "blueprint" : "terrain"} data={mode === "health" ? healthData : data} mode={mode} selectedId={selected} selectionRevision={selectionRevision} onSelect={select} healthPhase={healthPhase} scanStartedAt={scanStartedAt} simPhase={simPhase} selectedFindingId={inspectingProblem ? selectedFindingId : null} onSelectHealthFinding={inspectProblem} bobVisual={mode === "health" || mode === "simulate" ? bobVisual : null} bobSignal={healthBobContext && !bobOpen ? { title: problemName(healthBobContext.finding, healthBobContext.node.id), severity: healthBobContext.finding.severity, onOpen: () => setBobOpen(true) } : null} />
+        </SimulateSafeBoundary>
         {bobOpen && mode === "health" && (healthBobContext ? <HealthBob key={`${data.fixture_id}:${healthBobContext.node.id}:${healthBobContext.finding.id}`} context={healthBobContext} onClose={closeHealthBob} onVisual={setBobVisual} onConversation={setBobConversation} onConfirm={confirmBobDecision} /> : <aside id="twin-bob" className="health-bob health-bob-empty twin-overlay" aria-label="Contextual Bob"><header className="health-bob-head"><Bot size={14} /><strong>Bob</strong><Button variant="ghost" size="icon" aria-label="Close Bob" title="Close Bob" onClick={() => setBobOpen(false)}><X size={16} /></Button></header><p>{healthPhase === "done" ? "Select a problem to view its synthetic analysis." : "No scanned problem selected."}</p></aside>)}
       </main>
 
