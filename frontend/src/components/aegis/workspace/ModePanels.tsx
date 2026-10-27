@@ -18,15 +18,6 @@ const scenarioIcon = (id: string) => id === "heavy_storm" || id === "extreme_rai
 
 export type SimInput = "scenario" | "bob";
 
-const BOB_SUGGESTIONS = [
-  "What happens under extreme rainfall?",
-  "What if all flow from L1 is diverted to L2?",
-  "What if E-J3-L2 is removed?",
-  "Can this pipe handle the cloudburst?",
-  "What happens if L2 becomes unavailable?",
-  "What if 70% of J3 flow goes through L2?",
-];
-
 /** Bob simulation input — a situation question feeds the same mock
  *  simulation pipeline as a predefined scenario. */
 function BobAsk({ pending, onAsk }: { pending: boolean; onAsk: (question: string) => void }) {
@@ -40,9 +31,6 @@ function BobAsk({ pending, onAsk }: { pending: boolean; onAsk: (question: string
   return (
     <div className="bob-ask">
       <p className="ws-note">Ask Bob what happens in a situation. Bob interprets the question, runs the same mock simulation as a scenario, and explains the supplied result.</p>
-      <div className="sim-bob-chips">
-        {BOB_SUGGESTIONS.map((suggestion) => <Button key={suggestion} variant="outline" size="sm" disabled={pending} onClick={() => submit(suggestion)}>{suggestion}</Button>)}
-      </div>
       <form className="bob-ask-form" onSubmit={(event) => { event.preventDefault(); submit(prompt); }}>
         <input value={prompt} onChange={(event) => setPrompt(event.target.value)} aria-label="Ask Bob a simulation question" placeholder="What happens if heavy rainfall occurs?" maxLength={2000} />
         <Button type="submit" size="icon" aria-label="Send to Bob" title="Send to Bob" disabled={pending || !prompt.trim()}>
