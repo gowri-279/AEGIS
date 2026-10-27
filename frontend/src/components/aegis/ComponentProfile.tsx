@@ -27,7 +27,6 @@ export function ComponentProfile({ data, id, onClose }: { data: CanonicalRespons
       <ProfileSection title="Sensors">{sensors.length ? sensors.map((sensor) => <div className="profile-item" key={sensor.id}><strong>{sensor.id}</strong><span>{sensor.variable}: {value(sensor.effective_value)}{sensor.effective_value != null ? ` ${sensor.unit}` : ""}</span><small>Status: {sensor.status} · Confidence: {value(sensor.confidence)}</small></div>) : <p className="engineering-note">Unavailable</p>}</ProfileSection>
       <ProfileSection title="Risks / Attention">{risks.length ? risks.map((risk) => <div className="profile-item" key={risk.id}><strong>{risk.title}</strong><span>{risk.severity} · {risk.category.replaceAll("_", " ")}</span><small>{risk.potential_impact}</small></div>) : <p className="engineering-note">No canonical findings for this component.</p>}</ProfileSection>
       <ProfileSection title="Connections">{connections.length ? connections.map((connection) => <div className="profile-item" key={connection.id}><strong>{connection.id}</strong><span>{connection.from} → {connection.to}</span></div>) : <p className="engineering-note">Unavailable</p>}</ProfileSection>
-      <ProfileSection title="Limitations / Uncertainty">{data.recommendation.data_limitations.map((item) => <p className="profile-note" key={item}>{item}</p>)}{data.recommendation.uncertainty.map((item) => <p className="profile-note" key={item}>{item}</p>)}</ProfileSection>
     </>}
   </aside>;
 }
@@ -45,7 +44,6 @@ export function CanonicalNodeSections({ data, node }: { data: CanonicalResponse;
     <ProfileSection title="Risks / Attention">{risks.length ? risks.map((risk) => <div className="profile-item" key={risk.id}><strong>{risk.title}</strong><span>{risk.severity} · {risk.category.replaceAll("_", " ")}</span><small>{risk.potential_impact}</small></div>) : <p className="engineering-note">No canonical findings for this component.</p>}</ProfileSection>
     <ProfileSection title="Connections">{connections.length ? connections.map((connection) => <div className="profile-item" key={connection.id}><strong>{connection.id}</strong><span>{connection.from} → {connection.to}</span></div>) : <p className="engineering-note">Unavailable</p>}</ProfileSection>
     {candidate && <ProfileSection title="Intervention / Candidate"><ProfileRow label="Candidate" value={candidate.id} /><ProfileRow label="Feasibility" value={candidate.feasible == null ? "Not Evaluated" : candidate.feasible ? "Feasible" : "Infeasible"} /><ProfileRow label="Available Storage" value={value(candidate.available_storage_m3)} unit={candidate.available_storage_m3 == null ? undefined : "m³"} />{candidate.constraints.map((constraint) => <div className="profile-item" key={constraint.constraint_id}><strong>{constraint.description}</strong><span>{constraint.status.replaceAll("_", " ")}</span></div>)}</ProfileSection>}
-    <ProfileSection title="Limitations / Uncertainty">{data.recommendation.data_limitations.map((item) => <p className="profile-note" key={item}>{item}</p>)}{data.recommendation.uncertainty.map((item) => <p className="profile-note" key={item}>{item}</p>)}</ProfileSection>
   </>;
 }
 

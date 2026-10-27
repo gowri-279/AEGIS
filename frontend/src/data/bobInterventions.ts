@@ -1,4 +1,5 @@
 import type { HealthBobContext } from "./healthBob";
+import { getComponentIntel } from "./componentIntelligence";
 import type { CanonicalResponse, Severity } from "./types";
 
 export type BobScenarioId = "BASELINE" | "NO_ACTION" | "REROUTE_L1" | "REROUTE_L2" | "INCREASE_CONVEYANCE" | "ADD_PIPE" | "REPLACE_PIPE" | "INCREASE_STORAGE" | "DOWNSTREAM_REDESIGN";
@@ -9,8 +10,17 @@ export interface BobVisualScenario {
   running: boolean;
   revision: number;
 }
+export interface BobSimulationMetrics {
+  recommendation_status?: string | null;
+  selected_candidate_id?: string | null;
+  diverted_volume_m3?: number | null;
+  proposed_flow_m3s?: number | null;
+  fixture_id?: string | null;
+  from_simulation?: boolean;
+  scenario?: string;
+}
 export interface BobScenarioResult {
-  source: "mock";
+  source: "mock" | "aegis" | "deterministic";
   scenarioId: BobScenarioId;
   title: string;
   explanation: string;
@@ -19,6 +29,12 @@ export interface BobScenarioResult {
   steps: string[];
   supported: boolean;
   visual: Omit<BobVisualScenario, "running" | "revision">;
+  existing_problem?: string;
+  why_it_matters?: string;
+  if_no_action?: string;
+  why_solution?: string;
+  result?: string;
+  simulation_metrics?: BobSimulationMetrics | null;
 }
 export interface BobDecision {
   id: string;
@@ -82,23 +98,24 @@ export function bobQuestionIntent(question: string): BobScenarioId | "approve" |
   return "evidence";
 }
 
-/** Fixed demonstration fixtures, NOT a hydraulic engine. All outcomes are authored,
- * unitless visual states, kept separate from canonical measurements and feasibility. */
+/** Deterministic Health Bob scenario fallback grounded in component intelligence.
+ *  Visual states remain illustrative; numeric claims require AEGIS assessment (live path). */
 export function mockBobScenario(context: HealthBobContext, scenarioId: BobScenarioId): BobScenarioResult {
   const nodeId = context.node.id;
+  const intel = getComponentIntel(nodeId);
   const branch = scenarioId === "REROUTE_L1" ? "L1" : scenarioId === "REROUTE_L2" ? "L2" : null;
   const candidate = context.candidates.find((item) => item.node_id === branch);
   const unknown = context.recommendation.recommendation_status === "abstained" || context.candidates.some((item) => item.feasible === null);
   const intervention = {
-    BASELINE: "Baseline network demonstration",
+    BASELINE: "Baseline network assessment",
     NO_ACTION: "Retain the existing configuration",
-    REROUTE_L1: "Explore diversion toward L1",
-    REROUTE_L2: "Explore diversion toward L2",
-    INCREASE_CONVEYANCE: `Review downstream conveyance at ${nodeId}`,
-    ADD_PIPE: `Assess parallel conveyance downstream of ${nodeId}`,
-    REPLACE_PIPE: `Assess conduit replacement near ${nodeId}`,
-    INCREASE_STORAGE: `Assess storage expansion at ${context.node.type === "storage" ? nodeId : "L1"}`,
-    DOWNSTREAM_REDESIGN: `Review the ${nodeId} → J4 → O1 downstream connection`,
+    REROUTE_L1: "Divert peak flow toward L1 storage",
+    REROUTE_L2: "Divert peak flow toward L2 storage",
+    INCREASE_CONVEYANCE: `Increase downstream conveyance capacity at ${nodeId}`,
+    ADD_PIPE: `Add parallel conveyance downstream of ${nodeId}`,
+    REPLACE_PIPE: `Replace constrained conduit near ${nodeId}`,
+    INCREASE_STORAGE: `Expand storage capacity at ${context.node.type === "storage" ? nodeId : "L1"}`,
+    DOWNSTREAM_REDESIGN: `Redesign the ${nodeId} → J4 → O1 downstream connection`,
   }[scenarioId];
   const blocked = !!branch && (!candidate || !candidate.eligible || candidate.feasible !== true);
   const supported = !unknown && !blocked;
@@ -114,7 +131,6 @@ export function mockBobScenario(context: HealthBobContext, scenarioId: BobScenar
       ...(context.network.nodes.find((n) => n.id === affectedId)?.type === "storage" ? { storageLevel: improved ? "settled" as const : "raised" as const } : {}),
     };
   }
-  // Lookup-only stages on current directed edges; no new/parallel geometry is added.
   const excluded = new Set(context.candidates.filter((c) => !c.eligible || c.feasible === null).map((c) => c.node_id));
   const edgeStages: Record<string, number> = {};
   if (!unknown) for (const edge of context.network.edges) {
@@ -123,16 +139,52 @@ export function mockBobScenario(context: HealthBobContext, scenarioId: BobScenar
     if (branch && ((edge.from === "J3" && edge.to !== branch) || (["L1", "L2"].includes(edge.from) && edge.from !== branch))) continue;
     edgeStages[edge.id] = edge.from === "C1" || edge.from === "C2" ? 0 : edge.from === "J3" ? 1 : edge.from === "J4" ? 3 : 2;
   }
-  const title = unknown ? "Outcome unavailable — observations require review" : blocked ? `${branch} remains constrained — not a preferred route` : baseline ? "Baseline demonstration" : noAction ? `${nodeId}: unresolved loading demonstration` : `${affectedId}: illustrative risk reduced to Moderate`;
+
+  const downstream = context.downstream.join(", ") || "J4/O1";
+  const upstream = context.upstream.join(", ") || "upstream inlets";
+  const existing_problem = `${nodeId}: ${context.finding.title} (${context.finding.severity}).`
+    + (context.finding.observed_value != null && context.finding.threshold != null
+      ? ` Observed ${context.finding.observed_value} ${context.finding.unit ?? ""} against threshold ${context.finding.threshold} ${context.finding.unit ?? ""}`.trimEnd()
+      : intel?.identified_constraint ? ` ${intel.identified_constraint}` : "");
+  const why_it_matters = `${intel?.engineering_significance ?? context.finding.potential_impact} Topology: ${upstream} → ${nodeId} → ${downstream}.`
+    + (intel?.sensor_status ? ` Sensor ${intel.sensor_status}${intel.sensor_confidence != null ? ` (confidence ${intel.sensor_confidence})` : ""}.` : "")
+    + ` Downstream sensitivity: ${intel?.downstream_sensitivity ?? "unknown"}.`;
+  const if_no_action = context.finding.category === "bottleneck"
+    ? `Leaving ${nodeId} unchanged keeps available storage below the diversion requirement. Excess volume remains concentrated at the controlling junction and propagates toward ${downstream}, increasing loading on the corridor to J4/O1.`
+    : context.finding.category === "overflow"
+      ? `Without intervention at ${nodeId}, peak loading continues toward ${downstream}. Receiving components (J4/O1) remain exposed to uncontrolled transfer.`
+      : `If conditions at ${nodeId} persist, ${upstream} face rising surcharge pressure and diversion options toward L1/L2 become more constrained.`;
+  const why_solution = scenarioId === "INCREASE_STORAGE"
+    ? `Storage expansion addresses the bottleneck where observed storage is below the diversion volume, reducing reliance on undersized branches and protecting the J4 → O1 corridor.`
+    : scenarioId === "DOWNSTREAM_REDESIGN"
+      ? `Downstream redesign targets the ${nodeId} → J4 → O1 relationship so peak transfer is managed before it reaches the outlet.`
+      : `This intervention addresses the ${context.finding.category.replaceAll("_", " ")} finding at ${nodeId} using the known topology and component constraints.`;
+
+  const title = unknown ? "Outcome unavailable — observations require review" : blocked ? `${branch} remains constrained — not a preferred route` : baseline ? "Baseline network assessment" : noAction ? `${nodeId}: unresolved loading if no action is taken` : `${affectedId}: engineering expectation — loading moderated`;
   const explanation = unknown
     ? "The supplied response abstains or leaves feasibility undetermined. Bob cannot assert an intervention outcome. Obtain reliable observations first."
     : blocked ? `The supplied ${branch} candidate is ineligible, infeasible or undetermined. Additional diversion does not resolve that constraint; this alternative cannot be approved.`
-    : noAction ? "This fixed no-action demonstration escalates the selected problem ring. It illustrates a possible consequence, not a measured breach or predicted hydraulic failure."
+    : noAction ? if_no_action
     : baseline ? "Existing topology and supplied constraints are unchanged."
-    : "This authored intervention demonstration reduces the visual loading state. No new capacity, discharge, improvement percentage or engineering safety result is calculated. Physical additions are conceptual only; the approved topology is unchanged.";
-  const consequences = unknown ? ["Engineering outcome is not available in the current model."] : blocked ? [`${branch} becomes the limiting branch in this mock alternative.`, "Canonical constraints remain unchanged."] : noAction ? ["The selected problem remains unresolved.", `${nodeId} shows critical loading in this demonstration only.`, "Downstream capacity and real surcharge are not established."] : [title, "Canonical observations, findings and candidate feasibility remain unchanged."];
-  return { source: "mock", scenarioId, title, explanation, consequences, intervention, supported,
-    steps: [`Assess the proposed option: ${intervention}.`, "Obtain source observations and an engineering design assessment.", "Re-run the scenario with validated intervention parameters.", "Verify storage constraints and downstream capacity at J4 and O1.", "Submit for implementation review; no physical work is authorized by this demo."],
+    : `${why_solution} Run AEGIS assessment to obtain deterministic simulation metrics; no improvement percentage is claimed without simulation.`;
+  const consequences = unknown
+    ? ["Engineering outcome is not available in the current model."]
+    : blocked
+      ? [`${branch} becomes the limiting branch under the supplied constraints.`, "Canonical constraints remain unchanged."]
+      : noAction
+        ? [`${nodeId} remains in ${intel?.health_status ?? "attention"} state.`, `Downstream path ${nodeId} → ${downstream} stays exposed.`, "No AEGIS simulation has yet quantified a failure event for this no-action path."]
+        : [why_solution, "Canonical observations and candidate feasibility remain authoritative until AEGIS simulation is run."];
+  const result = noAction
+    ? "Engineering consequence described from component intelligence. No improvement metric is claimed because no intervention was applied."
+    : improved
+      ? `Engineering expectation: ${intervention} is expected to relieve concentration at ${nodeId}. Deterministic AEGIS metrics appear after the live assessment path runs.`
+      : explanation;
+
+  return {
+    source: "deterministic", scenarioId, title, explanation, consequences, intervention, supported,
+    existing_problem, why_it_matters, if_no_action, why_solution, result,
+    simulation_metrics: { from_simulation: false },
+    steps: [`Assess the proposed option: ${intervention}.`, "Confirm observations and sensor reliability at the selected component.", "Re-run AEGIS assessment with the intervention parameters.", "Verify storage constraints and downstream capacity at J4 and O1.", "Submit for implementation review after engineer approval."],
     visual: { scenarioId, edgeStages, nodeStates },
   };
 }

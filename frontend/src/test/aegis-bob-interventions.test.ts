@@ -31,12 +31,14 @@ describe("Bob deterministic demonstration rules", () => {
     expect(c.candidate?.feasible).toBe(false);
     expect(JSON.stringify(c)).toBe(before);
   });
-  it("authored storage expansion improves only demonstration state, not canonical feasibility", () => {
+  it("storage expansion improves only demonstration state, not canonical feasibility", () => {
     const c = context("L1");
     const result = mockBobScenario(c, "INCREASE_STORAGE");
     expect(result.visual.nodeStates['L1']).toEqual({ severity: "moderate", storageLevel: "settled" });
     expect(c.candidate?.feasible).toBe(false);
     expect(c.candidate?.available_storage_m3).toBe(100);
+    expect(result.explanation.toLowerCase()).not.toContain("authored intervention demonstration");
+    expect(result.if_no_action?.toLowerCase() ?? "").not.toContain("fixed no-action demonstration");
   });
   it("keeps L2 overflow measurements unknown and canonical 800 m³ unchanged", () => {
     const c = context("L2");
@@ -54,11 +56,15 @@ describe("Bob deterministic demonstration rules", () => {
     expect(result.visual.nodeStates).toEqual({});
     expect(result.visual.edgeStages).toEqual({});
   });
-  it("returns the same outcome without external requests", async () => {
-    const spy = vi.spyOn(globalThis, "fetch");
+  it("returns deterministic no-action text without the old authored demo script", async () => {
+    const spy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("backend down"));
     const c = context("J3");
-    expect(await runBobScenario(c, "NO_ACTION")).toEqual(await runBobScenario(c, "NO_ACTION"));
-    expect(spy).not.toHaveBeenCalled();
+    const a = await runBobScenario(c, "NO_ACTION");
+    const b = await runBobScenario(c, "NO_ACTION");
+    expect(a.explanation).toEqual(b.explanation);
+    expect(a.explanation.toLowerCase()).not.toContain("fixed no-action demonstration");
+    expect(a.explanation.toLowerCase()).not.toContain("authored intervention demonstration");
+    expect(a.existing_problem).toContain("J3");
     spy.mockRestore();
   });
   it("requires simulation then approval then confirmation; More does not approve", () => {

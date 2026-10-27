@@ -3,6 +3,7 @@ import { fixtures } from "@/data/mockCanonicalResponse";
 import { mockHealthFindings } from "@/data/mockHealthFindings";
 import { createHealthBobContext, mockHealthBobReply } from "@/data/healthBob";
 import { getHealthBobReply } from "@/services/api";
+import { CANONICAL_COMPONENT_IDS, COMPONENT_INTELLIGENCE } from "@/data/componentIntelligence";
 
 function context(id: string) {
   const data = { ...fixtures.standard, risks: mockHealthFindings("standard") };
@@ -22,7 +23,12 @@ describe("synthetic-only Health Bob", () => {
     expect(c.sensors[0]?.status).toBe("fresh");
     expect(c.upstream).toEqual(["C1", "C2"]);
     expect(c.downstream).toEqual(["L1", "R1", "L2"]);
-    expect(mockHealthBobReply({ context: c }).source).toBe("mock");
+    expect(c.component_intelligence?.component_id).toBe("J3");
+    const reply = mockHealthBobReply({ context: c });
+    expect(reply.source).toBe("deterministic");
+    expect(reply.existing_problem).toContain("J3");
+    expect(reply.text.toLowerCase()).not.toContain("authored");
+    expect(reply.text.toLowerCase()).not.toContain("### uncertainty");
   });
   it("uses supplied L1 100 m³ and failed constraints without calculating feasibility", () => {
     const c = context("L1");
@@ -30,6 +36,7 @@ describe("synthetic-only Health Bob", () => {
     expect(c.simulation.diverted_volume_m3).toBe(200);
     expect(c.candidate?.feasible).toBe(false);
     expect(c.downstream).toEqual(["J4"]);
+    expect(c.component_intelligence?.observed_storage_m3).toBe(100);
     const before = JSON.stringify(c);
     mockHealthBobReply({ context: c, question: "Explain the capacity" });
     expect(JSON.stringify(c)).toBe(before);
@@ -44,14 +51,22 @@ describe("synthetic-only Health Bob", () => {
     expect(c.downstream).toEqual(["J4"]);
     expect(c.network.edges.some((edge) => edge.from === "R1" && edge.to === "J4")).toBe(false);
   });
-  it("serves initial analysis and follow-ups without any external request", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("External calls forbidden"));
+  it("falls back without requiring a live backend", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("backend down"));
     try {
       for (const id of ["J3", "L1", "L2"]) {
-        expect((await getHealthBobReply({ context: context(id) })).source).toBe("mock");
-        expect((await getHealthBobReply({ context: context(id), question: "What should I check?" })).source).toBe("mock");
+        const reply = await getHealthBobReply({ context: context(id) });
+        expect(reply.source).toBe("deterministic");
+        expect(reply.existing_problem).toBeTruthy();
+        expect(reply.text.toLowerCase()).not.toContain("fixed no-action demonstration");
       }
-      expect(fetchSpy).not.toHaveBeenCalled();
     } finally { fetchSpy.mockRestore(); }
+  });
+  it("exposes deterministic component intelligence for the canonical topology", () => {
+    for (const id of CANONICAL_COMPONENT_IDS) {
+      expect(COMPONENT_INTELLIGENCE[id]?.component_id).toBe(id);
+    }
+    expect(COMPONENT_INTELLIGENCE.L1?.observed_storage_m3).toBe(100);
+    expect(COMPONENT_INTELLIGENCE.L1?.relevant_threshold?.limit).toBe(200);
   });
 });

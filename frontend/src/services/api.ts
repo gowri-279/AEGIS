@@ -18,7 +18,7 @@ import type {
   Severity,
 } from "@/data/types";
 import { mockHealthBobReply, type HealthBobRequest, type HealthBobResponse } from "@/data/healthBob";
-import { mockBobScenario, type BobScenarioId } from "@/data/bobInterventions";
+import { mockBobScenario, type BobScenarioId, type BobScenarioResult } from "@/data/bobInterventions";
 import { mockSimBobReply, type SimBobReply } from "@/data/simBob";
 import { landingDemoModel } from "@/data/landingDemoNetwork";
 import type { BuildDraft } from "@/data/networkSession";
@@ -411,14 +411,69 @@ export async function getHealthFindings(fixtureId: string): Promise<RiskFinding[
   }
 }
 
-/** Replaceable local provider seam. No network calls or keys in the demo. */
+/** Health Bob briefing — prefer backend component intelligence; fall back locally. */
 export async function getHealthBobReply(request: HealthBobRequest): Promise<HealthBobResponse> {
-  return mockHealthBobReply(request);
+  try {
+    const raw = await fetchJson("/api/v1/monitor/health-bob", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context: request.context, scenario_id: null }),
+    }) as Record<string, unknown>;
+    const text = [
+      raw["existing_problem"] ? `### Existing problem\n${raw["existing_problem"]}` : null,
+      raw["why_it_matters"] ? `### Why it matters\n${raw["why_it_matters"]}` : null,
+      raw["if_no_action"] ? `### If no action is taken\n${raw["if_no_action"]}` : null,
+      raw["proposed_solution"] ? `### Proposed solution\n${raw["proposed_solution"]}` : null,
+      raw["why_solution"] ? `### Why this solution\n${raw["why_solution"]}` : null,
+      raw["result"] ? `### Result\n${raw["result"]}` : null,
+    ].filter(Boolean).join("\n\n");
+    return {
+      source: (raw["source"] as HealthBobResponse["source"]) || "bob",
+      text: text || mockHealthBobReply(request).text,
+      existing_problem: raw["existing_problem"] as string | undefined,
+      why_it_matters: raw["why_it_matters"] as string | undefined,
+      if_no_action: raw["if_no_action"] as string | undefined,
+      proposed_solution: raw["proposed_solution"] as string | undefined,
+      why_solution: raw["why_solution"] as string | undefined,
+      result: raw["result"] as string | undefined,
+    };
+  } catch (error) {
+    console.warn("[aegis] health bob briefing unavailable; using component-intelligence fallback", error);
+    return mockHealthBobReply(request);
+  }
 }
 
-/** Authored demonstration outcomes behind the same replaceable service boundary. */
-export async function runBobScenario(context: HealthBobRequest["context"], scenarioId: BobScenarioId) {
-  return mockBobScenario(context, scenarioId);
+/** Health Bob scenario — proposed solutions hit AEGIS assessment when backend is up. */
+export async function runBobScenario(context: HealthBobRequest["context"], scenarioId: BobScenarioId): Promise<BobScenarioResult> {
+  const fallback = mockBobScenario(context, scenarioId);
+  try {
+    const raw = await fetchJson("/api/v1/monitor/health-bob/scenario", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ context, scenario_id: scenarioId }),
+    }) as Record<string, unknown>;
+    const visual = (raw["visual"] as BobScenarioResult["visual"] | undefined) ?? fallback.visual;
+    return {
+      source: (raw["source"] as BobScenarioResult["source"]) || "aegis",
+      scenarioId,
+      title: String(raw["title"] ?? fallback.title),
+      explanation: String(raw["explanation"] ?? fallback.explanation),
+      consequences: Array.isArray(raw["consequences"]) ? raw["consequences"].map(String) : fallback.consequences,
+      intervention: String(raw["intervention"] ?? raw["proposed_solution"] ?? fallback.intervention),
+      steps: Array.isArray(raw["steps"]) ? raw["steps"].map(String) : fallback.steps,
+      supported: raw["supported"] !== false,
+      visual,
+      existing_problem: (raw["existing_problem"] as string | undefined) ?? fallback.existing_problem,
+      why_it_matters: (raw["why_it_matters"] as string | undefined) ?? fallback.why_it_matters,
+      if_no_action: (raw["if_no_action"] as string | undefined) ?? fallback.if_no_action,
+      why_solution: (raw["why_solution"] as string | undefined) ?? fallback.why_solution,
+      result: (raw["result"] as string | undefined) ?? fallback.result,
+      simulation_metrics: (raw["simulation_metrics"] as BobScenarioResult["simulation_metrics"]) ?? fallback.simulation_metrics,
+    };
+  } catch (error) {
+    console.warn("[aegis] health bob scenario unavailable; using deterministic fallback", error);
+    return fallback;
+  }
 }
 
 export interface MonitorBobSimulationRequest {

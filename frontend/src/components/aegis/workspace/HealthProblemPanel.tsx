@@ -8,7 +8,7 @@ import { problemName } from "./HealthProblemMarkers";
 /** Decision-support inspection of one supplied finding: what is wrong, how severe it is,
  *  what evidence supports it and what it could cause. No condition detection or risk
  *  calculation; canonical component details stay in the right-side component profile. */
-export function HealthProblemPanel({ data, node, finding, onClose, onNextProblem, onPreviousProblem }: { data: CanonicalResponse; node: NetworkNode; finding: RiskFinding; onClose: () => void; onNextProblem?: () => void; onPreviousProblem?: () => void }) {
+export function HealthProblemPanel({ data: _data, node, finding, onClose, onNextProblem, onPreviousProblem }: { data: CanonicalResponse; node: NetworkNode; finding: RiskFinding; onClose: () => void; onNextProblem?: () => void; onPreviousProblem?: () => void }) {
   const value = (number: number | null) => number == null ? "Unknown" : finding.unit === "m" ? `${number.toFixed(2)} m` : display(number, finding.unit);
   return <aside className="health-inspection" aria-label="Health problem details">
     <header className="health-inspection-head">
@@ -33,7 +33,6 @@ export function HealthProblemPanel({ data, node, finding, onClose, onNextProblem
       </dl></section>
       <section><h3>Evidence</h3><ul className="health-inspection-evidence">{finding.evidence.map((evidence, index) => <li key={`${finding.id}-${index}`}>{evidence}</li>)}</ul></section>
       <section className="health-inspection-risk"><h3>Potential Impact</h3><p>{finding.potential_impact}</p></section>
-      <section><h3>Limitations / Uncertainty</h3><ul className="health-inspection-evidence">{data.recommendation.data_limitations.concat(data.recommendation.uncertainty).map((item) => <li key={item}>{item}</li>)}</ul></section>
     </div>
   </aside>;
 }

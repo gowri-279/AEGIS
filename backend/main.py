@@ -7,6 +7,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from backend.intelligence.build_bob import handle_build_bob_design
+from backend.intelligence.component_intelligence import get_component_intelligence
+from backend.intelligence.health_bob import build_structured_briefing, run_health_bob_scenario
 from backend.intelligence.monitor_bob import handle_monitor_bob
 from backend.integration.build_bridge import (
     finalize_build_network,
@@ -221,6 +223,50 @@ def post_monitor_bob(request: MonitorBobRequest) -> dict:
         raise HTTPException(
             status_code=500,
             detail="Monitor Bob request failed.",
+        ) from exc
+
+
+@app.get("/api/v1/monitor/component-intelligence")
+def get_monitor_component_intelligence(component_id: str | None = None) -> dict:
+    """Deterministic synthetic component/edge intelligence for Monitor Bob."""
+    return get_component_intelligence(component_id)
+
+
+class HealthBobBriefRequest(BaseModel):
+    context: dict[str, Any]
+    scenario_id: str | None = None
+
+
+class HealthBobScenarioRequest(BaseModel):
+    context: dict[str, Any]
+    scenario_id: str = Field(min_length=1)
+
+
+@app.post("/api/v1/monitor/health-bob")
+def post_monitor_health_bob(request: HealthBobBriefRequest) -> dict:
+    """Structured Health Bob briefing grounded in component intelligence."""
+    try:
+        return build_structured_briefing(
+            request.context,
+            scenario_id=request.scenario_id,
+            include_bob=True,
+        )
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(
+            status_code=500,
+            detail="Health Bob briefing failed.",
+        ) from exc
+
+
+@app.post("/api/v1/monitor/health-bob/scenario")
+def post_monitor_health_bob_scenario(request: HealthBobScenarioRequest) -> dict:
+    """Health Bob scenario — proposed solutions run AEGIS deterministic assessment."""
+    try:
+        return run_health_bob_scenario(request.context, request.scenario_id)
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(
+            status_code=500,
+            detail="Health Bob scenario failed.",
         ) from exc
 
 
