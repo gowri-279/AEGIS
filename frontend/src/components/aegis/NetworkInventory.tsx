@@ -1,23 +1,42 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import type { CanonicalResponse, NetworkEdge, NetworkNode } from "@/data/types";
+import { COMPONENT_INTELLIGENCE, EDGE_INTELLIGENCE, getComponentIntel } from "@/data/componentIntelligence";
 import { cn } from "@/lib/utils";
 
 type Filter = "all" | "nodes" | "edges";
 type Entry = { id: string; label: string; kind: string; status?: string | undefined; group: Exclude<Filter, "all"> };
 
+/** Inventory entries resolve labels/status from the same canonical component model as ComponentProfile. */
 export function NetworkInventory({ data, selectedId, onSelect, onSamplesFilter }: { data: CanonicalResponse; selectedId: string | null; onSelect: (id: string) => void; onSamplesFilter?: (visible: boolean) => void }) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const entries = useMemo<Entry[]>(() => [
     ...data.network.nodes.map((node: NetworkNode) => {
+      const intel = getComponentIntel(node.id) ?? COMPONENT_INTELLIGENCE[node.id];
       const sensorStatuses = node.sensor_ids.map((id) => data.sensors.find((sensor) => sensor.id === id)?.status).filter(Boolean);
       const candidate = data.candidates.find((item) => item.id === node.candidate_id);
-      const status = sensorStatuses[0] ?? (candidate ? candidate.feasible === true ? "feasible" : candidate.feasible === false ? "infeasible" : "not evaluated" : undefined);
-      return { id: node.id, label: node.label, kind: node.type, status, group: "nodes" as const };
+      const liveStatus = sensorStatuses[0] ?? (candidate ? candidate.feasible === true ? "feasible" : candidate.feasible === false ? "infeasible" : "not evaluated" : undefined);
+      const status = liveStatus ?? intel?.health_status ?? intel?.status?.toLowerCase();
+      return {
+        id: node.id,
+        label: intel?.name ?? node.label,
+        kind: intel?.component_type ?? node.type,
+        status,
+        group: "nodes" as const,
+      };
     }),
     ...data.sensors.map((sensor) => ({ id: sensor.id, label: `${sensor.variable} at ${sensor.node_id}`, kind: "sensor", status: sensor.status, group: "nodes" as const })),
-    ...data.network.edges.map((edge: NetworkEdge) => ({ id: edge.id, label: `${edge.from} → ${edge.to}`, kind: "conduit", group: "edges" as const })),
+    ...data.network.edges.map((edge: NetworkEdge) => {
+      const edgeIntel = EDGE_INTELLIGENCE[edge.id];
+      return {
+        id: edge.id,
+        label: `${edge.from} → ${edge.to}`,
+        kind: edgeIntel?.type ?? "conduit",
+        status: edgeIntel?.status,
+        group: "edges" as const,
+      };
+    }),
   ], [data]);
   const visible = entries.filter((entry) => (filter === "all" || entry.group === filter) && `${entry.id} ${entry.label} ${entry.kind} ${entry.status ?? ""}`.toLowerCase().includes(query.toLowerCase().trim()));
 

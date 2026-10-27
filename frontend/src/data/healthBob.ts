@@ -1,26 +1,31 @@
 import type { CanonicalResponse, NetworkNode, RiskFinding } from "./types";
 import { display, humanize, nodeCandidate, nodeRisks, nodeSensors } from "@/lib/aegis";
-import { getComponentIntel, relatedEdges } from "./componentIntelligence";
+import { getComponentIntel, resolveComponentProfile } from "./componentIntelligence";
 
 export const HEALTH_BOB_UNAVAILABLE = "This is not available in the current model.";
 
-/** Lookup-only context: includes component intelligence + canonical assessment fields. */
+/** Lookup-only context: full canonical component profile + neighbors for Monitor Bob. */
 export function createHealthBobContext(data: CanonicalResponse, node: NetworkNode, finding: RiskFinding) {
-  const intel = getComponentIntel(node.id);
+  const profile = resolveComponentProfile(data, node.id);
   return {
     node, finding,
     sensors: nodeSensors(data, node),
     risks: nodeRisks(data, node),
     candidate: nodeCandidate(data, node),
     candidates: data.candidates,
-    upstream: data.network.edges.filter((edge) => edge.to === node.id).map((edge) => edge.from),
-    downstream: data.network.edges.filter((edge) => edge.from === node.id).map((edge) => edge.to),
+    upstream: profile?.upstream ?? data.network.edges.filter((edge) => edge.to === node.id).map((edge) => edge.from),
+    downstream: profile?.downstream ?? data.network.edges.filter((edge) => edge.from === node.id).map((edge) => edge.to),
     network: data.network,
     simulation: data.simulation,
     recommendation: data.recommendation,
     provenance: data.data_provenance,
-    component_intelligence: intel ?? null,
-    related_edges: relatedEdges(node.id),
+    component_intelligence: profile?.intel ?? null,
+    component_profile: profile,
+    related_edges: profile?.related_edges ?? [],
+    neighbor_components: profile?.neighbor_intel ?? { upstream: [], downstream: [] },
+    topology_path: profile
+      ? `${profile.upstream.join(" → ") || "—"} → ${profile.component_id} → ${profile.downstream.join(" → ") || "—"}`
+      : node.id,
   };
 }
 

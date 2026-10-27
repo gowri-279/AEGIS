@@ -10,6 +10,7 @@ from typing import Any
 from backend.intelligence.bob_service import run_bob
 from backend.intelligence.component_intelligence import (
     COMPONENTS,
+    bob_component_context,
     get_component_intelligence,
     related_edges_for,
 )
@@ -268,6 +269,8 @@ def build_structured_briefing(
         else:
             bob_error = bob.get("error")
 
+    bob_ctx = bob_component_context(component_id) if component_id else {}
+
     return {
         "ok": True,
         "source": bob_source,
@@ -275,6 +278,7 @@ def build_structured_briefing(
         "component_id": component_id,
         "scenario_id": proposed,
         "component_intelligence": comp,
+        "bob_component_context": bob_ctx,
         "related_edges": edges,
         "existing_problem": existing_problem,
         "why_it_matters": why_it_matters,

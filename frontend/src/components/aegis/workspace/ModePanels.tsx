@@ -195,7 +195,6 @@ function ActionPlanCard({ plan, onSelect, onToggleStep }: { plan: BobDecision; o
         <Pill tone={completed ? "ok" : "warn"}>{plan.status}</Pill>
       </div>
       <h4>Proposed Action</h4><p>{plan.intervention}</p>
-      {plan.budget && <><h4>Approximate Implementation Budget</h4><p>{plan.budget}</p></>}
       <h4>Simulation Outcome · Synthetic</h4><p>{plan.outcome}</p>
       <h4>Action Items</h4>
       <ol className="action-plan-steps">
@@ -246,7 +245,6 @@ export function ReviewPanel({ data, onSelect, plans = [], onToggleStep }: { data
         ))}
         {!data.risks.length && <p className="ws-note">No canonical findings.</p>}
       </Section>
-      <Section title="Uncertainty"><ul className="ws-list">{r.uncertainty.map((x) => <li key={x}>{x}</li>)}</ul></Section>
     </div>
     <section className="ws-stack review-plans" aria-label="Action plan">
       <ActionPlanList plans={plans} onSelect={onSelect} onToggleStep={onToggleStep ?? (() => {})} />

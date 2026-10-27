@@ -1,5 +1,5 @@
 import type { CanonicalResponse } from "./types";
-import { mockBudgetLabel, type BobDecision } from "./bobInterventions";
+import type { BobDecision } from "./bobInterventions";
 import { display, recommendationLabel, resolveTarget } from "@/lib/aegis";
 
 /** Presentation-only action record: preserves the supplied evaluation, including
@@ -28,7 +28,6 @@ export function simulationPlan(data: CanonicalResponse, scenarioOptionId: string
       "Submit for implementation review; no physical work is authorized by this demo.",
     ],
     status: "Approved · pending", createdAt, doneSteps: [], source: "mock", priority: false,
-    budget: mockBudgetLabel(candidate ? candidate.kind === "storage" ? "INCREASE_STORAGE" : "INCREASE_CONVEYANCE" : "NO_ACTION"),
     simulationEvidence: { scenarioOptionId, response: structuredClone(data) },
   };
 }
