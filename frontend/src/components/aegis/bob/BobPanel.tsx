@@ -37,7 +37,8 @@ export function BobPanel({ data, selectedId, onSelect, onWhatIf }: {
     try {
       const live = await askMonitorBob(q, data);
       if (live.simulation_request && onWhatIf) {
-        setThread((t) => [...t, { role: "user" as const, text: q }, { role: "bob" as const, text: live.explanation || live.simulation_request.explanation || "Running allowlisted AEGIS what-if…" }].slice(-6));
+        const sim = live.simulation_request;
+        setThread((t) => [...t, { role: "user" as const, text: q }, { role: "bob" as const, text: live.explanation || sim.explanation || "Running allowlisted AEGIS what-if…" }].slice(-6));
         onWhatIf(q);
         return;
       }

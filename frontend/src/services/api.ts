@@ -492,6 +492,32 @@ export interface MonitorBobResponse {
   error?: string | null;
   explanation?: string | null;
   simulation_request?: MonitorBobSimulationRequest | null;
+  hydraulic_result?: import("@/data/hydraulicSimulation").HydraulicResult | null;
+}
+
+export async function runHydraulicSimulate(req: {
+  condition?: string;
+  action?: string;
+  parameters?: Record<string, unknown>;
+  apply_failure_transition?: boolean;
+}): Promise<import("@/data/hydraulicSimulation").HydraulicResult> {
+  try {
+    const raw = await fetchJson("/api/v1/monitor/hydraulic-simulate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    });
+    return raw as import("@/data/hydraulicSimulation").HydraulicResult;
+  } catch (error) {
+    console.warn("[aegis] hydraulic simulate unavailable; using local deterministic engine", error);
+    const { runHydraulicSimulation } = await import("@/data/hydraulicSimulation");
+    return runHydraulicSimulation({
+      condition: req.condition,
+      action: req.action,
+      parameters: req.parameters,
+      applyFailureTransition: req.apply_failure_transition,
+    });
+  }
 }
 
 /** Monitor Bob via shared backend intelligence (falls back to local mock). */
@@ -523,25 +549,67 @@ export async function askMonitorBob(message: string, context: CanonicalResponse 
   }
 }
 
-/** Simulate-mode Bob: prefer live Monitor Bob, keep mock mapping for fixtures/visuals. */
-export async function getSimBobReply(question: string, data: CanonicalResponse): Promise<SimBobReply> {
-  const live = await askMonitorBob(question, data);
-  const mock = mockSimBobReply(question, data);
-  const sim = live.simulation_request;
-  if (sim?.fixture && (sim.fixture === "standard" || sim.fixture === "degraded" || sim.fixture === "critical_stale" || sim.fixture === "stress")) {
+/** Simulate-mode Bob: prefer live Monitor Bob + hydraulic engine; local fallback. */
+export async function getSimBobReply(question: string, data: CanonicalResponse): Promise<SimBobReply & { hydraulic?: import("@/data/hydraulicSimulation").HydraulicResult }> {
+  const { parseBobHydraulicAction, runHydraulicSimulation, explainHydraulicResult } = await import("@/data/hydraulicSimulation");
+  try {
+    const live = await askMonitorBob(question, data);
+    const sim = live.simulation_request;
+    let hydraulic = live.hydraulic_result ?? null;
+    if (!hydraulic && sim?.action) {
+      hydraulic = await runHydraulicSimulate({
+        condition: (sim.parameters?.condition as string | undefined) ?? sim.scenario_option_id ?? undefined,
+        action: sim.action,
+        parameters: sim.parameters ?? {},
+      });
+    }
+    if (!hydraulic && !sim) {
+      const parsed = parseBobHydraulicAction(question);
+      if (parsed) {
+        hydraulic = runHydraulicSimulation({
+          condition: (parsed.parameters.condition as string | undefined) ?? undefined,
+          action: parsed.action,
+          parameters: parsed.parameters,
+        });
+      }
+    }
+    if (hydraulic) {
+      return {
+        source: "mock",
+        text: live.explanation || explainHydraulicResult(hydraulic, sim?.explanation),
+        fixture: hydraulic.fixture,
+        scenarioOptionId: hydraulic.condition_id,
+        visual: {
+          edgeStages: hydraulic.visual.edgeStages,
+          nodeStates: hydraulic.visual.nodeStates,
+        },
+        hydraulic,
+      };
+    }
+    if (live.explanation) {
+      return { source: "mock", text: live.explanation };
+    }
+  } catch (error) {
+    console.warn("[aegis] sim bob hydraulic path failed; using local parser", error);
+  }
+  const parsed = parseBobHydraulicAction(question);
+  if (parsed) {
+    const hydraulic = runHydraulicSimulation({
+      condition: (parsed.parameters.condition as string | undefined) ?? undefined,
+      action: parsed.action,
+      parameters: parsed.parameters,
+    });
     return {
-      source: live.source === "bob" ? "mock" : "mock",
-      text: live.explanation || sim.explanation || mock.text,
-      fixture: sim.fixture,
-      scenarioOptionId: sim.scenario_option_id,
-      ...(sim.visual === "l2-unavailable" && mock.visual ? { visual: mock.visual } : {}),
+      source: "mock",
+      text: explainHydraulicResult(hydraulic, parsed.explanation),
+      fixture: hydraulic.fixture,
+      scenarioOptionId: hydraulic.condition_id,
+      visual: { edgeStages: hydraulic.visual.edgeStages, nodeStates: hydraulic.visual.nodeStates },
+      hydraulic,
     };
   }
-  if (live.explanation) {
-    return { source: "mock", text: live.explanation, fixture: mock.fixture, scenarioOptionId: mock.scenarioOptionId, visual: mock.visual };
-  }
   await delay(200);
-  return mock;
+  return mockSimBobReply(question, data);
 }
 
 export interface BuildBobCandidate {

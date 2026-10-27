@@ -61,7 +61,12 @@ export function mockSimBobReply(question: string, data: CanonicalResponse): SimB
   const intent = simBobIntent(question);
   if (intent === "rain" || intent === "sensor") {
     const q = question.toLowerCase();
-    const optionId = intent === "sensor" ? (/degrad/.test(q) ? "degraded" : "sensor-failure") : /normal|standard/.test(q) ? "standard" : /flood|overflow/.test(q) ? "flooding" : "heavy-rain";
+    const optionId = /cloud|peak/.test(q) ? "cloudburst"
+      : /extreme/.test(q) ? "extreme_rainfall"
+      : /flood|overflow/.test(q) ? "flooding"
+      : /heavy|storm/.test(q) ? "heavy_storm"
+      : /normal|standard/.test(q) ? "normal_rainfall"
+      : "heavy_storm";
     const option = SCENARIOS.find((item) => item.id === optionId);
     if (!option) return { source: "mock", text: scenarioSummary(data) };
     const response = fixtures[option.fixture];

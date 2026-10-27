@@ -16,9 +16,19 @@ import { DiagnosticSweep } from "./DiagnosticSweep";
 import { HealthProblemMarkers } from "./HealthProblemMarkers";
 import { flowPulseProgress, simulationFlowPlan } from "./simulationFlowPresentation";
 import { BobSignal } from "../bob/BobSignal";
-import type { BobVisualScenario } from "@/data/bobInterventions";
+import type { BobVisualScenario, HydraulicVisualState } from "@/data/bobInterventions";
 import type { Severity } from "@/data/types";
+import type { Tone } from "@/lib/aegis";
 import { NETWORK_FLOW_HOP_SECONDS, networkFlowPlan } from "./networkFlowPresentation";
+
+function hydraulicTone(state?: HydraulicVisualState): Tone | null {
+  if (!state) return null;
+  if (state === "green") return "ok";
+  if (state === "amber") return "warn";
+  if (state === "red" || state === "blinking_red") return "crit";
+  if (state === "grey") return "unknown";
+  return null;
+}
 
 export interface SceneProps {
   bobVisual?: BobVisualScenario | null;
@@ -233,16 +243,18 @@ function NodeStructure({ node, point, props, palette }: { node: NetworkNode; poi
   // In Health after a scan, the ring belongs to the supplied problem severity and
   // must win over selection/default colours in every representation.
   const demoState = mode === "health" || mode === "simulate" ? props.bobVisual?.nodeStates[node.id] : undefined;
-  const problemTone = demoState ? severityTone[demoState.severity] : mode === "health" && healthPhase === "done" && risks.length ? strongestTone(risks.map((risk) => severityTone[risk.severity])) : null;
+  const hydraulic = hydraulicTone(demoState?.hydraulicState);
+  const problemTone = hydraulic ?? (demoState ? severityTone[demoState.severity] : mode === "health" && healthPhase === "done" && risks.length ? strongestTone(risks.map((risk) => severityTone[risk.severity])) : null);
   const ringColor = problemTone ? (palette[problemTone] ?? "") : color;
+  const blinking = demoState?.hydraulicState === "blinking_red";
   return <group position={[point.x, 0, point.z]} onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}>
     {props.representation === "terrain" ? <Structure role={role} palette={palette} /> : <BlueprintStructure role={role} palette={palette} />}
     {role === "storage" && demoState?.storageLevel && <mesh name={`bob-level-${node.id}`} rotation-x={-Math.PI / 2} position-y={demoState.storageLevel === "raised" ? .22 : .04} scale={[1.45, 1, 1]}><circleGeometry args={[.84, 48]} /><meshBasicMaterial color={palette[severityTone[demoState.severity]] ?? ""} transparent opacity={.6} /></mesh>}
     <ProjectedLabel position={[point.x, .8, point.z]} above>{selected && mode === "health" && props.bobSignal ? <BobSignal {...props.bobSignal} /> : null}</ProjectedLabel>
     <mesh name={`access-${node.id}`} position-y={DISPLAY_CONDUIT_Y / 2}><cylinderGeometry args={[.22, .22, -DISPLAY_CONDUIT_Y, 24]} /><meshStandardMaterial color={palette["model-concrete"] ?? ""} roughness={.9} wireframe={props.representation === "blueprint"} /></mesh>
-    {(problemTone || selected || tone !== "neutral") && <mesh position-y={.025} rotation-x={-Math.PI / 2}><ringGeometry args={[1.2, 1.25, 64]} /><meshBasicMaterial color={ringColor} transparent opacity={.8} /></mesh>}
+    {(problemTone || selected || tone !== "neutral") && <mesh position-y={.025} rotation-x={-Math.PI / 2}><ringGeometry args={[1.2, 1.25, 64]} /><meshBasicMaterial color={ringColor} transparent opacity={blinking ? .45 : .8} /></mesh>}
     <ProjectedLabel position={[point.x, .6, point.z + 1.15]}>
-      <div className={cn("model-label", `tone-${tone}`, selected && "is-selected")}>
+      <div className={cn("model-label", `tone-${hydraulic ?? tone}`, selected && "is-selected", blinking && "is-blinking-red", demoState?.hydraulicState === "grey" && "is-sim-failed")}>
         {props.representation === "blueprint" && candidate && (mode === "simulate" || mode === "review") && <small className="model-candidate">{candidate.id}{mode === "simulate" ? ` · ${feasibilityLabel(candidate.feasible)}` : ""}</small>}
         <Button variant="ghost" className="model-node-button" aria-label={`${node.id} ${node.label}`} aria-pressed={selected} onClick={(event) => { event.stopPropagation(); onSelect(node.id); }}><strong>{node.id}</strong>{props.representation === "blueprint" && <span>{node.label}</span>}</Button>
         {props.representation === "blueprint" && sensors.length > 0 && <div className="model-sensors">{sensors.map((s) => <span key={s.id} className={`tone-${sensorTone[s.status]}`} title={`${s.id} · ${s.status}`}><i />{s.id} · {s.status}</span>)}</div>}
@@ -302,23 +314,26 @@ function Conduit({ id, a, b, props, palette, reduced, flowStage, lastStage, flow
   const { data, mode, selectedId, onSelect } = props;
   const curve = useMemo(() => displayConduitCurve(a, b), [a, b]);
   const edge = data.network.edges.find((item) => item.id === id);
+  const edgeHydraulic = (mode === "health" || mode === "simulate") ? props.bobVisual?.edgeStates?.[id] : undefined;
   const demoState = (mode === "health" || mode === "simulate") && edge ? props.bobVisual?.nodeStates[edge.to] ?? props.bobVisual?.nodeStates[edge.from] : undefined;
-  const tone = demoState ? severityTone[demoState.severity] : spatialEdgeTone(data, id, mode);
+  const hydraulic = hydraulicTone(edgeHydraulic?.hydraulicState);
+  const tone = hydraulic ?? (demoState ? severityTone[demoState.severity] : spatialEdgeTone(data, id, mode));
   const selected = selectedId === id || (mode === "simulate" && candidatesForSelection(data, id, selectedId));
   const color = selected ? (palette["primary"] ?? "") : (palette[tone === "neutral" ? "model-metal" : tone] ?? "");
-  const waterVisible = (mode === "network" || mode === "simulate" || (mode === "health" && !!props.bobVisual)) && flowStage !== undefined;
+  const waterVisible = (mode === "network" || mode === "simulate" || (mode === "health" && !!props.bobVisual)) && flowStage !== undefined && edgeHydraulic?.hydraulicState !== "grey";
   const flowing = waterVisible || (mode === "review" && routeMembership(data).edges.has(id));
   const midpoint = curve.getPoint(.5);
+  const blinking = edgeHydraulic?.hydraulicState === "blinking_red";
   return <group onClick={(event) => { event.stopPropagation(); onSelect(id); }}>
     {/* One visible conduit per canonical edge; the wider transparent tube is hit area only. */}
-    <mesh name={`conduit-${id}`} receiveShadow><tubeGeometry args={[curve, 40, props.representation === "blueprint" ? .13 : DISPLAY_CONDUIT_RADIUS, 12, false]} /><meshStandardMaterial color={selected || tone !== "neutral" ? color : (palette["model-concrete"] ?? "")} roughness={.85} wireframe={props.representation === "blueprint"} /></mesh>
+    <mesh name={`conduit-${id}`} receiveShadow><tubeGeometry args={[curve, 40, props.representation === "blueprint" ? .13 : DISPLAY_CONDUIT_RADIUS, 12, false]} /><meshStandardMaterial color={selected || tone !== "neutral" ? color : (palette["model-concrete"] ?? "")} roughness={.85} wireframe={props.representation === "blueprint"} opacity={edgeHydraulic?.hydraulicState === "grey" ? .35 : 1} transparent={edgeHydraulic?.hydraulicState === "grey" || blinking} /></mesh>
     <mesh><tubeGeometry args={[curve, 20, .32, 6, false]} /><meshBasicMaterial transparent opacity={0} depthWrite={false} /></mesh>
-    {waterVisible && flowStage !== undefined && <FlowMarkers id={id} curve={curve} color={palette[demoState ? severityTone[demoState.severity] : "info"] ?? ""} reduced={reduced} stage={flowStage} lastStage={lastStage} startedAt={flowStartedAt} network={mode === "network"} />}
+    {waterVisible && flowStage !== undefined && <FlowMarkers id={id} curve={curve} color={palette[hydraulic ?? (demoState ? severityTone[demoState.severity] : "info")] ?? ""} reduced={reduced} stage={flowStage} lastStage={lastStage} startedAt={flowStartedAt} network={mode === "network"} />}
     {tone === "unknown" ? [.3, .5, .7].map((t) => { const p = curve.getPoint(t); return <mesh key={t} position={[p.x, DISPLAY_CONDUIT_Y + .24, p.z]}><sphereGeometry args={[.055, 8, 8]} /><meshBasicMaterial color={color} /></mesh>; }) : !waterVisible && <>
       <DirectionArrow curve={curve} color={color} active={flowing && mode !== "simulate"} offset={.05} reduced={reduced} />
       {flowing && mode !== "simulate" && <DirectionArrow curve={curve} color={color} active offset={.85} reduced={reduced} />}
     </>}
-    <ProjectedLabel position={[midpoint.x, DISPLAY_CONDUIT_Y + .3, midpoint.z]}><Button variant="ghost" className={cn("model-edge-button", `tone-${tone}`, selected && "is-selected")} aria-label={`Connection ${id}`} aria-pressed={selected} onClick={(event) => { event.stopPropagation(); onSelect(id); }}>{id}</Button></ProjectedLabel>
+    <ProjectedLabel position={[midpoint.x, DISPLAY_CONDUIT_Y + .3, midpoint.z]}><Button variant="ghost" className={cn("model-edge-button", `tone-${tone}`, selected && "is-selected", blinking && "is-blinking-red", edgeHydraulic?.hydraulicState === "grey" && "is-sim-failed")} aria-label={`Connection ${id}`} aria-pressed={selected} onClick={(event) => { event.stopPropagation(); onSelect(id); }}>{id}</Button></ProjectedLabel>
   </group>;
 }
 

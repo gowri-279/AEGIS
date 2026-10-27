@@ -15,6 +15,10 @@ from backend.integration.build_bridge import (
     list_finalized_networks,
     run_build_simulation,
 )
+from backend.simulation.hydraulic_whatif import (
+    CONDITIONS,
+    run_hydraulic_simulation,
+)
 from backend.integration.scenarios import (
     FIXED_EVALUATION_TIME,
     FixtureId,
@@ -223,6 +227,49 @@ def post_monitor_bob(request: MonitorBobRequest) -> dict:
         raise HTTPException(
             status_code=500,
             detail="Monitor Bob request failed.",
+        ) from exc
+
+
+class HydraulicSimulateRequest(BaseModel):
+    condition: str | None = "normal_rainfall"
+    action: str | None = "run_condition"
+    parameters: dict[str, Any] | None = None
+    apply_failure_transition: bool = True
+
+
+@app.get("/api/v1/monitor/hydraulic-conditions")
+def get_hydraulic_conditions() -> dict:
+    """Five deterministic rainfall / loading conditions for Simulate."""
+    return {
+        "conditions": [
+            {
+                "id": c["id"],
+                "label": c["label"],
+                "detail": c["detail"],
+                "load_multiplier": c["load_multiplier"],
+                "fixture": c["fixture"],
+            }
+            for c in CONDITIONS.values()
+        ]
+    }
+
+
+@app.post("/api/v1/monitor/hydraulic-simulate")
+def post_hydraulic_simulate(request: HydraulicSimulateRequest) -> dict:
+    """Deterministic hydraulic what-if simulation (does not mutate canonical baseline)."""
+    try:
+        return run_hydraulic_simulation(
+            condition=request.condition,
+            action=request.action,
+            parameters=request.parameters,
+            apply_failure_transition=request.apply_failure_transition,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # pragma: no cover
+        raise HTTPException(
+            status_code=500,
+            detail="Hydraulic simulation failed.",
         ) from exc
 
 

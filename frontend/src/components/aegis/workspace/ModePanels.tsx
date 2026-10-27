@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, CloudRain, CornerDownLeft, Droplets, Gauge, Loader2, Play, ShieldAlert, ShieldCheck, ShieldQuestion, Waves, Activity } from "lucide-react";
+import { Bot, Check, ChevronDown, ChevronLeft, ChevronRight, CloudRain, CornerDownLeft, Droplets, Loader2, Play, ShieldAlert, ShieldCheck, ShieldQuestion, Waves, Activity } from "lucide-react";
 import type { CanonicalResponse, NetworkNode } from "@/data/types";
 import { display, feasibilityLabel, feasibilityTone, humanize, nodeRisks, nodeSensors, recommendationLabel, recommendationTone, resolveTarget, sensorTone, severityTone, strongestTone, type Tone } from "@/lib/aegis";
 import { cn } from "@/lib/utils";
@@ -10,21 +10,23 @@ import { MessageResponse } from "@/components/ai-elements/message";
 
 import type { BobDecision } from "@/data/bobInterventions";
 import type { SimBobReply } from "@/data/simBob";
+import type { HydraulicResult } from "@/data/hydraulicSimulation";
+import { getComponentIntel } from "@/data/componentIntelligence";
 
 type Select = (id: string) => void;
 
 /* ---------------- Simulate ---------------- */
-const scenarioIcon = (id: string) => id === "heavy-rain" ? CloudRain : id === "flooding" ? Droplets : id === "degraded" || id === "sensor-failure" ? Gauge : Waves;
+const scenarioIcon = (id: string) => id === "heavy_storm" || id === "extreme_rainfall" ? CloudRain : id === "flooding" || id === "cloudburst" ? Droplets : Waves;
 
 export type SimInput = "scenario" | "bob";
 
 const BOB_SUGGESTIONS = [
-  "What happens if heavy rainfall occurs?",
-  "What happens if L2 reaches maximum capacity?",
-  "What happens if J3 water depth exceeds 0.8 m?",
-  "What happens if the downstream conduit is blocked?",
-  "What happens if the sensor becomes stale?",
-  "What happens if we divert water from L2 to J4?",
+  "What happens under extreme rainfall?",
+  "What if all flow from L1 is diverted to L2?",
+  "What if E-J3-L2 is removed?",
+  "Can this pipe handle the cloudburst?",
+  "What happens if L2 becomes unavailable?",
+  "What if 70% of J3 flow goes through L2?",
 ];
 
 /** Bob simulation input — a situation question feeds the same mock
@@ -54,12 +56,14 @@ function BobAsk({ pending, onAsk }: { pending: boolean; onAsk: (question: string
   );
 }
 
-export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, onSelect, input, setInput, bobAnswer, bobPending, onBobAsk, onAcceptRecommendation }: {
+export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, onSelect, input, setInput, bobAnswer, bobPending, onBobAsk, onAcceptRecommendation, hydraulic, onClearWhatIf }: {
   data: CanonicalResponse; scenarioId: string; setScenarioId: (id: string) => void;
   phase: "idle" | "running" | "done"; onRun: () => void; onSelect: Select;
   input: SimInput; setInput: (input: SimInput) => void;
   bobAnswer: SimBobReply | null; bobPending: boolean; onBobAsk: (question: string) => void;
   onAcceptRecommendation?: () => void;
+  hydraulic?: HydraulicResult | null;
+  onClearWhatIf?: () => void;
 }) {
   const sim = data.simulation;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -86,14 +90,20 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
               ); })}
             </div>}
           </div>
-          <p className="ws-note">{current.detail}. Illustrative MVP scenario — every value comes from the mock data model, not live sensors or hydraulics.</p>
+          <p className="ws-note">{current.detail}. Deterministic AEGIS hydraulic evaluation using canonical capacities — what-if states are temporary.</p>
           <Button className="ws-action" onClick={onRun} disabled={phase === "running"}>
             {phase === "running" ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} />}{phase === "running" ? "Running Simulation…" : "Run Scenario"}
           </Button>
+          {hydraulic?.what_if && onClearWhatIf && (
+            <Button variant="outline" className="ws-action" onClick={onClearWhatIf} disabled={phase === "running"}>Clear What-If / Reset</Button>
+          )}
         </Section>
       ) : (
         <Section title="1 · Bob · Simulation Assistant">
           <BobAsk pending={bobPending || phase === "running"} onAsk={onBobAsk} />
+          {hydraulic?.what_if && onClearWhatIf && (
+            <Button variant="outline" className="ws-action" onClick={onClearWhatIf} disabled={phase === "running" || bobPending}>Clear What-If / Reset</Button>
+          )}
         </Section>
       )}
       {bobAnswer && (
@@ -101,12 +111,23 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
           <div className="bob-interpretation"><MessageResponse>{bobAnswer.text}</MessageResponse></div>
         </Section>
       )}
-      <Section title="2 · Evaluation" aside={phase === "done" ? <span className="ws-count">{data.fixture_label}</span> : undefined}>
-        {phase !== "done" ? <p className="ws-note">{phase === "running" ? "Evaluating supplied mock scenario…" : "No scenario evaluated."}</p> : <>
-        <div className="kv-grid">
-          <KV label="Scenario ID" value={sim.scenario_id} /><KV label="Diverted Volume" value={display(sim.diverted_volume_m3, "m³")} />
-          <KV label="Duration" value={display(sim.duration_s, "s")} /><KV label="Proposed Flow" value={display(sim.proposed_flow_m3s, "m³/s")} />
-        </div>
+      <Section title="2 · Evaluation" aside={phase === "done" ? <span className="ws-count">{hydraulic?.condition_label ?? data.fixture_label}</span> : undefined}>
+        {phase !== "done" ? <p className="ws-note">{phase === "running" ? "Evaluating hydraulic condition…" : "No scenario evaluated."}</p> : <>
+        {hydraulic ? (
+          <div className="kv-grid">
+            <KV label="Condition" value={hydraulic.condition_label} />
+            <KV label="Network Status" value={hydraulic.overall_network_status} />
+            <KV label="Max Loading" value={display(hydraulic.max_loading_ratio)} />
+            <KV label="Bottleneck" value={hydraulic.critical_bottleneck ?? "—"} />
+            <KV label="Failed Edges" value={hydraulic.failed_edges.join(", ") || "—"} />
+            <KV label="Storage Stress" value={hydraulic.storage_stress.join(", ") || "—"} />
+          </div>
+        ) : (
+          <div className="kv-grid">
+            <KV label="Scenario ID" value={sim.scenario_id} /><KV label="Diverted Volume" value={display(sim.diverted_volume_m3, "m³")} />
+            <KV label="Duration" value={display(sim.duration_s, "s")} /><KV label="Proposed Flow" value={display(sim.proposed_flow_m3s, "m³/s")} />
+          </div>
+        )}
         {data.candidates.map((c) => (
           <div key={c.id} className={cn("cand-card", `tone-${feasibilityTone(c.feasible)}`)}>
             <Button variant="ghost" className="cand-head" onClick={() => onSelect(c.node_id)}>
@@ -116,11 +137,11 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
             {c.constraints.map((k) => <ConstraintRow key={k.constraint_id} c={k} />)}
           </div>
         ))}
-        <p className="ws-note">Candidate-level capacity constraints are MVP model constraints, not surveyed pipe capacities. {sim.model_note}</p>
+        <p className="ws-note">{hydraulic ? hydraulic.summary : `Candidate-level capacity constraints are MVP model constraints, not surveyed pipe capacities. ${sim.model_note}`}</p>
         </>}
       </Section>
       <Section title="3 · Result">
-        {phase === "done" ? <><ResultBanner data={data} onAccept={onAcceptRecommendation} /><ResultInterpretation data={data} onSelect={onSelect} /></> : <p className="ws-note">{phase === "running" ? "Simulation running…" : "No simulation result."}</p>}
+        {phase === "done" ? <><ResultBanner data={data} onAccept={onAcceptRecommendation} /><ResultInterpretation data={data} onSelect={onSelect} hydraulic={hydraulic ?? null} /></> : <p className="ws-note">{phase === "running" ? "Simulation running…" : "No simulation result."}</p>}
       </Section>
     </div>
   );
@@ -128,11 +149,17 @@ export function SimulatePanel({ data, scenarioId, setScenarioId, phase, onRun, o
 
 /** Reading of supplied scenario outputs only — infeasible routes, failed constraints,
  *  unreliable sensors and findings are lookups, never new calculations. */
-function ResultInterpretation({ data, onSelect }: { data: CanonicalResponse; onSelect: Select }) {
+function ResultInterpretation({ data, onSelect, hydraulic }: { data: CanonicalResponse; onSelect: Select; hydraulic: HydraulicResult | null }) {
   const infeasible = data.candidates.filter((c) => c.feasible === false);
   const failed = data.candidates.flatMap((c) => c.constraints.filter((rule) => rule.status === "fail").map((rule) => ({ candidate: c, rule })));
   const unreliable = data.sensors.filter((s) => s.status !== "fresh");
   const items: { tone: Tone; text: React.ReactNode }[] = [
+    ...(hydraulic ? [
+      { tone: "info" as Tone, text: <>Condition: {hydraulic.condition_label} · overall {hydraulic.overall_network_status}</> },
+      ...hydraulic.affected_edges.map((id) => ({ tone: "crit" as Tone, text: <>Affected edge {id} · state {hydraulic.edges.find((e) => e.edge_id === id)?.state}</> })),
+      ...hydraulic.affected_components.map((id) => ({ tone: "warn" as Tone, text: <>Affected component <button className="link" onClick={() => onSelect(id)}>{id}</button> · state {hydraulic.components.find((c) => c.component_id === id)?.state}</> })),
+      ...hydraulic.sensor_considerations.map((note) => ({ tone: "warn" as Tone, text: <>{note}</> })),
+    ] : []),
     ...infeasible.map((c) => ({ tone: "crit" as Tone, text: <>Route infeasible: <button className="link" onClick={() => onSelect(c.node_id)}>{c.id} at {c.node_id}</button></> })),
     ...failed.map(({ candidate, rule }) => ({ tone: "crit" as Tone, text: <>Critical constraint · {candidate.node_id}: {rule.description} (observed {display(rule.observed, rule.unit)}, limit {display(rule.limit, rule.unit)})</> })),
     ...data.risks.map((r) => ({ tone: severityTone[r.severity] as Tone, text: <>{r.title} · {r.target_id}: {r.potential_impact}</> })),
@@ -140,9 +167,9 @@ function ResultInterpretation({ data, onSelect }: { data: CanonicalResponse; onS
   ];
   return (
     <div className="result-interpretation">
-      <h4>Interpretation · Supplied Results</h4>
-      {items.length ? <ul className="ws-list">{items.map((item, index) => <li key={index} className={`tone-text-${item.tone}`}>{item.text}</li>)}</ul> : <p className="ws-note">No supplied constraint, finding or sensor issue in this scenario.</p>}
-      <p className="ws-note">Which route is infeasible, which component is overloaded and whether risk increased are read from the supplied mock evaluation — nothing is recalculated here.</p>
+      <h4>Interpretation · Simulation Results</h4>
+      {items.length ? <ul className="ws-list">{items.map((item, index) => <li key={index} className={`tone-text-${item.tone}`}>{item.text}</li>)}</ul> : <p className="ws-note">No hydraulic stress, constraint, finding or sensor issue in this scenario.</p>}
+      <p className="ws-note">{hydraulic ? "Edge and component states come from the deterministic AEGIS hydraulic engine. What-if changes do not mutate the canonical baseline." : "Results are read from the supplied evaluation."}</p>
     </div>
   );
 }
@@ -172,7 +199,11 @@ function ComponentSlab({ data, node, onSelect }: { data: CanonicalResponse; node
   const risks = nodeRisks(data, node);
   const sensors = nodeSensors(data, node);
   const tone = risks.length ? strongestTone(risks.map((risk) => severityTone[risk.severity])) : "ok";
-  const confidence = sensors.find((s) => s.confidence != null)?.confidence;
+  const intel = getComponentIntel(node.id);
+  const confidence = sensors.find((s) => s.confidence != null)?.confidence
+    ?? intel?.sensor_confidence
+    ?? intel?.sensor?.confidence
+    ?? null;
   return (
     <Button variant="ghost" className={cn("review-slab", `tone-${tone}`)} onClick={() => onSelect(node.id)}>
       <div className="review-slab-head"><strong>{node.id}</strong><Pill tone={tone}>{healthLabel[tone]}</Pill></div>

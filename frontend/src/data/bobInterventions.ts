@@ -3,10 +3,14 @@ import { getComponentIntel } from "./componentIntelligence";
 import type { CanonicalResponse, Severity } from "./types";
 
 export type BobScenarioId = "BASELINE" | "NO_ACTION" | "REROUTE_L1" | "REROUTE_L2" | "INCREASE_CONVEYANCE" | "ADD_PIPE" | "REPLACE_PIPE" | "INCREASE_STORAGE" | "DOWNSTREAM_REDESIGN";
+export type HydraulicVisualState = "green" | "amber" | "red" | "blinking_red" | "grey";
+
 export interface BobVisualScenario {
   scenarioId: string;
   edgeStages: Record<string, number>;
-  nodeStates: Record<string, { severity: Severity; storageLevel?: "raised" | "settled" }>;
+  nodeStates: Record<string, { severity: Severity; storageLevel?: "raised" | "settled"; hydraulicState?: HydraulicVisualState }>;
+  /** Optional per-edge hydraulic states from the deterministic simulator. */
+  edgeStates?: Record<string, { hydraulicState: HydraulicVisualState; loading_ratio?: number; severity?: Severity }>;
   running: boolean;
   revision: number;
 }

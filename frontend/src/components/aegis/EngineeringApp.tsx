@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 
 import { Link } from "@tanstack/react-router";
 import { Activity, AlertTriangle, Bot, ChevronRight, ListTree, Loader2, Radar, PanelLeftClose, Network as NetIcon, Play, ShieldCheck, Waves, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { getHealthFindings, getSimBobReply, runScenario, resolvedSimulationResponse, getNetworkSession, subscribeNetworkSession, selectSessionNetwork, type SessionNetwork } from "@/services/api";
+import { getHealthFindings, getSimBobReply, runScenario, resolvedSimulationResponse, getNetworkSession, subscribeNetworkSession, selectSessionNetwork, runHydraulicSimulate, type SessionNetwork } from "@/services/api";
+import { explainHydraulicResult, runHydraulicSimulation, type HydraulicResult } from "@/data/hydraulicSimulation";
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem } from "@/components/ui/dropdown-menu";
 import type { CanonicalResponse, RiskFinding } from "@/data/types";
 import { cn } from "@/lib/utils";
@@ -45,11 +46,12 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
   const [error, setError] = useState<string | null>(null);
   const [mode, setMode] = useState<WorkspaceMode>("network");
   const { selectedId: selected, selectionRevision, select: setSelected } = useNetworkSelection();
-  const [scenarioId, setScenarioId] = useState("standard");
+  const [scenarioId, setScenarioId] = useState("normal_rainfall");
   const [simPhase, setSimPhase] = useState<"idle" | "running" | "done">("idle");
   const [simInput, setSimInput] = useState<SimInput>("scenario");
   const [bobAnswer, setBobAnswer] = useState<SimBobReply | null>(null);
   const [bobPending, setBobPending] = useState(false);
+  const [hydraulic, setHydraulic] = useState<HydraulicResult | null>(null);
   const { phase: healthPhase, startedAt: scanStartedAt, scan } = useDiagnosticScan();
   const [controlsOpen, setControlsOpen] = useState(false);
   const [bobOpen, setBobOpen] = useState(false);
@@ -108,10 +110,21 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
 
   const select = useCallback((id: string | null) => { setSelectedFindingId(null); setSelected(id && data ? resolveTarget(data, id) : id); }, [data, setSelected]);
 
+  function applyHydraulicVisual(result: HydraulicResult, revision = 0) {
+    setHydraulic(result);
+    setBobVisual({
+      scenarioId: result.visual.scenarioId,
+      edgeStages: result.visual.edgeStages,
+      nodeStates: result.visual.nodeStates,
+      edgeStates: result.visual.edgeStates,
+      running: false,
+      revision,
+    });
+  }
+
   async function runFixture(fixture: FixtureId, scenarioOptionId = scenarioId) {
     if (entry.design) { setError("No Monitor scenario results are supplied for this finalized design. Its topology is preserved."); return; }
     setSimPhase("running");
-    setBobVisual(null);
     try { setData(resolvedSimulationResponse(await runScenario({ fixture, scenarioOptionId }), scenarioOptionId, decisions)); setSimPhase("done"); }
     catch { setError("Scenario run failed."); setSimPhase("idle"); }
   }
@@ -119,26 +132,62 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
   async function simulate() {
     const scenario = SCENARIOS.find((s) => s.id === scenarioId);
     if (!scenario) return;
+    if (entry.design) { setError("No Monitor scenario results are supplied for this finalized design. Its topology is preserved."); return; }
     setBobAnswer(null);
-    await runFixture(scenario.fixture, scenario.id);
+    setSimPhase("running");
+    setBobVisual(null);
+    try {
+      const result = await runHydraulicSimulate({ condition: scenario.conditionId, action: "run_condition", parameters: { condition: scenario.conditionId } });
+      applyHydraulicVisual(result);
+      await runFixture(result.fixture, scenario.id);
+    } catch {
+      try {
+        const result = runHydraulicSimulation({ condition: scenario.conditionId, action: "run_condition" });
+        applyHydraulicVisual(result);
+        await runFixture(result.fixture, scenario.id);
+      } catch { setError("Scenario run failed."); setSimPhase("idle"); }
+    }
   }
 
-  /** Bob question → mock interpretation → same simulation pipeline (fixture or
-   *  authored visual) → Evaluation/Result sections + terrain update. */
+  function clearWhatIf() {
+    const baseline = runHydraulicSimulation({ condition: scenarioId, action: "reset" });
+    applyHydraulicVisual(baseline, (bobVisual?.revision ?? 0) + 1);
+    setBobAnswer(null);
+    void runFixture(baseline.fixture, "normal_rainfall");
+    setScenarioId("normal_rainfall");
+  }
+
+  /** Bob question → allowlisted action → AEGIS hydraulic engine → explain + visualize. */
   async function askSimBob(question: string) {
     if (!data || bobPending) return;
     if (entry.design) { setError("Bob scenario results are not supplied for this finalized network."); return; }
     setBobPending(true);
+    setSimPhase("running");
     try {
       const reply = await getSimBobReply(question, data);
       setBobAnswer(reply);
-      if (reply.fixture) {
+      if (reply.hydraulic) {
+        applyHydraulicVisual(reply.hydraulic, (bobVisual?.revision ?? 0) + 1);
+        const optionId = reply.scenarioOptionId ?? reply.hydraulic.condition_id;
+        const matched = SCENARIOS.find((item) => item.id === optionId || item.conditionId === optionId);
+        if (matched) setScenarioId(matched.id);
+        await runFixture(reply.hydraulic.fixture, matched?.id ?? scenarioId);
+      } else if (reply.fixture) {
         const optionId = reply.scenarioOptionId ?? scenarioId;
         setScenarioId(SCENARIOS.find((item) => item.id === optionId)?.id ?? scenarioId);
+        const result = runHydraulicSimulation({ condition: optionId, action: "run_condition" });
+        applyHydraulicVisual(result, (bobVisual?.revision ?? 0) + 1);
         await runFixture(reply.fixture, optionId);
+      } else if (reply.visual) {
+        setBobVisual({ scenarioId: "BOB_WHAT_IF", ...reply.visual, running: false, revision: (bobVisual?.revision ?? 0) + 1 });
+        setSimPhase("done");
+      } else {
+        setSimPhase("idle");
       }
-      if (reply.visual) setBobVisual({ scenarioId: "BOB_WHAT_IF", ...reply.visual, running: false, revision: 0 });
-    } catch { setError("Bob's mock simulation reply could not be loaded."); }
+      if (reply.hydraulic && !reply.text.includes("RESULT")) {
+        setBobAnswer({ ...reply, text: explainHydraulicResult(reply.hydraulic, reply.text) });
+      }
+    } catch { setError("Bob's simulation reply could not be loaded."); setSimPhase("idle"); }
     finally { setBobPending(false); }
   }
 
@@ -226,7 +275,7 @@ function EngineeringNetworkApp({ entry, networks }: { entry: SessionNetwork; net
         <div className="ws-left-head"><div><span>{current.label}</span><small>{current.caption}</small></div><Button variant="ghost" size="icon" aria-label={analytical ? `Minimize ${current.label} panel` : "Close controls"} title={analytical ? `Minimize ${current.label} panel` : "Close controls"} onClick={() => setControlsOpen(false)}>{analytical ? <PanelLeftClose size={16} /> : <X size={16} />}</Button></div>
         <div className="ws-left-body">
           {mode === "network" && <NetworkInventory data={data} selectedId={selected} onSelect={select} />}
-           {mode === "simulate" && <SimulatePanel data={data} scenarioId={scenarioId} setScenarioId={(id) => { setScenarioId(id); setSimPhase("idle"); setBobAnswer(null); setBobVisual(null); }} phase={simPhase} onRun={simulate} onSelect={select} input={simInput} setInput={setSimInput} bobAnswer={bobAnswer} bobPending={bobPending} onBobAsk={(question) => void askSimBob(question)} onAcceptRecommendation={acceptRecommendation} />}
+           {mode === "simulate" && <SimulatePanel data={data} scenarioId={scenarioId} setScenarioId={(id) => { setScenarioId(id); setSimPhase("idle"); setBobAnswer(null); setBobVisual(null); setHydraulic(null); }} phase={simPhase} onRun={simulate} onSelect={select} input={simInput} setInput={setSimInput} bobAnswer={bobAnswer} bobPending={bobPending} onBobAsk={(question) => void askSimBob(question)} onAcceptRecommendation={acceptRecommendation} hydraulic={hydraulic} onClearWhatIf={clearWhatIf} />}
         </div>
       </aside>
 

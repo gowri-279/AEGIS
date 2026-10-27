@@ -83,8 +83,8 @@ class MonitorBobTests(unittest.TestCase):
     def test_simulation_request_allowlisted(self):
         bob_json = {
             "type": "simulation_request",
-            "action": "reroute_away_from_l2",
-            "parameters": {"target_node": "L2"},
+            "action": "disable_component",
+            "parameters": {"component_id": "L2"},
             "explanation": "Evaluate network without L2.",
         }
 
@@ -101,9 +101,11 @@ class MonitorBobTests(unittest.TestCase):
         sim = result["simulation_request"]
         self.assertIsNotNone(sim)
         self.assertEqual(sim["type"], "simulation_request")
-        self.assertEqual(sim["action"], "reroute_away_from_l2")
-        self.assertEqual(sim["fixture"], ALLOWED_SIMULATION_ACTIONS["reroute_away_from_l2"]["fixture"])
+        self.assertEqual(sim["action"], "disable_component")
+        self.assertIn(sim["action"], ALLOWED_SIMULATION_ACTIONS)
         self.assertNotIn("shell", sim)
+        self.assertIsNotNone(result["hydraulic_result"])
+        self.assertFalse(result["hydraulic_result"]["baseline_mutated"])
 
     def test_rejects_arbitrary_shell_action(self):
         bob_json = {

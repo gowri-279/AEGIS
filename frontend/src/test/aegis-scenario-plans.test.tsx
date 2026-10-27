@@ -4,13 +4,42 @@ import { SCENARIOS } from "@/data/simulationScenarios";
 import { fixtures } from "@/data/mockCanonicalResponse";
 import { simulationPlan } from "@/data/simulationPlans";
 import { mockSimBobReply } from "@/data/simBob";
+import { explainHydraulicResult, parseBobHydraulicAction, runHydraulicSimulation } from "@/data/hydraulicSimulation";
 import { EngineeringApp } from "@/components/aegis/EngineeringApp";
 import { renderWithRouter } from "./renderWithRouter";
 import { recommendationLabel } from "@/lib/aegis";
 
 vi.mock("@/services/api", async () => {
   const actual = await vi.importActual<typeof import("@/services/api")>("@/services/api");
-  return { ...actual, getCanonicalResponse: async () => fixtures.standard, runScenario: async (req: { fixture: keyof typeof fixtures; scenarioOptionId: string }) => ({ ...fixtures[req.fixture], simulation: { ...fixtures[req.fixture].simulation, scenario_option_id: req.scenarioOptionId } }), getSimBobReply: async (q: string, data: typeof fixtures.standard) => mockSimBobReply(q, data) };
+  return {
+    ...actual,
+    getCanonicalResponse: async () => fixtures.standard,
+    runScenario: async (req: { fixture: keyof typeof fixtures; scenarioOptionId: string }) => ({
+      ...fixtures[req.fixture],
+      simulation: { ...fixtures[req.fixture].simulation, scenario_option_id: req.scenarioOptionId },
+    }),
+    runHydraulicSimulate: async (req: { condition?: string; action?: string; parameters?: Record<string, unknown> }) =>
+      runHydraulicSimulation({ condition: req.condition, action: req.action, parameters: req.parameters }),
+    getSimBobReply: async (q: string) => {
+      const parsed = parseBobHydraulicAction(q);
+      if (parsed) {
+        const hydraulic = runHydraulicSimulation({
+          condition: (parsed.parameters.condition as string | undefined) ?? undefined,
+          action: parsed.action,
+          parameters: parsed.parameters,
+        });
+        return {
+          source: "mock" as const,
+          text: explainHydraulicResult(hydraulic, parsed.explanation),
+          fixture: hydraulic.fixture,
+          scenarioOptionId: hydraulic.condition_id,
+          visual: { edgeStages: hydraulic.visual.edgeStages, nodeStates: hydraulic.visual.nodeStates },
+          hydraulic,
+        };
+      }
+      return mockSimBobReply(q, fixtures.standard);
+    },
+  };
 });
 vi.mock("@/components/aegis/workspace/NetworkCanvas", () => ({ NetworkCanvas: () => <div /> }));
 afterEach(cleanup);
@@ -24,21 +53,20 @@ it.each(SCENARIOS)("preserves $label evaluation and decision in its own normal a
   if (response.recommendation.selected_candidate_id === null) expect(plan?.intervention).not.toContain("Implement recommended");
 });
 
-it("keeps Heavy rain and Flooding plans distinct despite their shared stress evaluation", () => {
-  expect(simulationPlan(fixtures.stress, "heavy-rain", "now")?.id).not.toBe(simulationPlan(fixtures.stress, "flooding", "now")?.id);
+it("keeps Heavy Storm and Flooding plans distinct despite their shared stress fixture", () => {
+  expect(simulationPlan(fixtures.stress, "heavy_storm", "now")?.id).not.toBe(simulationPlan(fixtures.stress, "flooding", "now")?.id);
 });
 
 it.each([
-  ["What happens if normal rainfall occurs?", "standard"],
-  ["What happens if heavy rainfall occurs?", "heavy-rain"],
-  ["What happens if L2 overflows?", "flooding"],
-  ["What happens if the sensor degrades?", "degraded"],
-  ["What happens if the sensor fails?", "sensor-failure"],
-])("Bob resolves %s to supplied scenario %s", (question, optionId) => {
-  const option = SCENARIOS.find((item) => item.id === optionId);
-  const reply = mockSimBobReply(question, fixtures.standard);
-  expect(reply.fixture).toBe(option?.fixture);
-  expect(reply.scenarioOptionId).toBe(optionId);
+  ["What happens if normal rainfall occurs?", "normal_rainfall"],
+  ["What happens if heavy rainfall occurs?", "heavy_storm"],
+  ["What happens if flooding occurs?", "flooding"],
+  ["What happens under extreme rainfall?", "extreme_rainfall"],
+  ["What happens in a cloudburst?", "cloudburst"],
+])("Bob resolves %s to hydraulic condition %s", (question, conditionId) => {
+  const parsed = parseBobHydraulicAction(question);
+  expect(parsed?.action).toBe("run_condition");
+  expect(parsed?.parameters.condition).toBe(conditionId);
 });
 
 it.each(SCENARIOS)("$label reaches evaluation → decision → Review from Scenario and Bob", async (scenario) => {
@@ -52,7 +80,13 @@ it.each(SCENARIOS)("$label reaches evaluation → decision → Review from Scena
       fireEvent.click(screen.getByRole("button", { name: /Run Scenario/ }));
     } else {
       fireEvent.click(within(screen.getByRole("group", { name: "Simulation input method" })).getByRole("button", { name: "Bob" }));
-      const questions: Record<string, string> = { standard: "What happens if normal rainfall occurs?", "heavy-rain": "What happens if heavy rain occurs?", flooding: "What happens if L2 overflows?", degraded: "What happens if the sensor degrades?", "sensor-failure": "What happens if the sensor fails?" };
+      const questions: Record<string, string> = {
+        normal_rainfall: "What happens if normal rainfall occurs?",
+        heavy_storm: "What happens if heavy rainfall occurs?",
+        flooding: "What happens if flooding occurs?",
+        extreme_rainfall: "What happens under extreme rainfall?",
+        cloudburst: "What happens in a cloudburst?",
+      };
       fireEvent.change(screen.getByLabelText("Ask Bob a simulation question"), { target: { value: questions[scenario.id] } });
       fireEvent.click(screen.getByRole("button", { name: "Send to Bob" }));
     }

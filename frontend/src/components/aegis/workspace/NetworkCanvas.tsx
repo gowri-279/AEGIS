@@ -22,11 +22,13 @@ interface Props {
   simPhase: "idle" | "running" | "done";
   selectedFindingId?: string | null;
   onSelectHealthFinding?: (findingId: string) => void;
+  /** Optional starting representation (e.g. blueprint for finalized design networks). */
+  initialRepresentation?: ModelRepresentation;
 }
 
 export function NetworkCanvas(props: Props) {
   const [resetKey, setResetKey] = useState(0);
-  const [representation, setRepresentation] = useState<ModelRepresentation>("terrain");
+  const [representation, setRepresentation] = useState<ModelRepresentation>(props.initialRepresentation ?? "terrain");
   return <div className="net-canvas spatial-canvas" data-mode={props.mode}>
     <div className="model-viewport" data-representation={representation}><Suspense fallback={<div className="model-loading">Loading catchment model…</div>}><CatchmentScene {...props} representation={representation} resetKey={resetKey} /></Suspense></div>
     <div className="model-tools">
@@ -50,7 +52,7 @@ export function NetworkCanvas(props: Props) {
 
 function legendFor(mode: WorkspaceMode): [Tone, string][] {
   if (mode === "health") return [["ok", "Fresh"], ["info", "Low"], ["warn", "Attention"], ["crit", "High / Critical"], ["unknown", "Unknown / Stale"]];
-  if (mode === "simulate") return [["ok", "Feasible Route"], ["crit", "Infeasible"], ["unknown", "Not Determined"]];
+  if (mode === "simulate") return [["ok", "Green · Safe"], ["warn", "Amber · Moderate"], ["crit", "Red · High / Critical"], ["unknown", "Grey · Simulated Failure"]];
   if (mode === "review") return [["ok", "Recommended Route"], ["neutral", "Other Connections"]];
   return [["neutral", "Conduit → Direction"], ["ok", "Sensor Fresh"], ["warn", "Sensor Attention"], ["unknown", "Sensor Unknown"]];
 }
